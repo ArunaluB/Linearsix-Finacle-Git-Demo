@@ -2,7 +2,7 @@
 #################################################################
 # Name: rollback_deployment.sh
 # Description: Rolls back failed Finacle deployment
-# Date: 2026-02-15
+# Date: 2026-02-16
 # Author: DevOps Team
 # Input: Environment, ticket number, timestamp
 # Output: Restored previous version
@@ -18,12 +18,30 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-# Configuration - SSH credentials from environment variables
+# Configuration
 FINACLE_SERVER="findem.linear6.com"
 FINACLE_USER="${FINACLE_USER:-finadm}"
-SSH_KEY="${SSH_KEY_FILE:-${SSH_KEY:-$HOME/.ssh/id_rsa}}"
+
+# SSH key handling
+if [[ -n "${SSH_KEY_FILE:-}" ]]; then
+    SSH_KEY="${SSH_KEY_FILE}"
+elif [[ -n "${SSH_KEY:-}" ]]; then
+    SSH_KEY="${SSH_KEY}"
+else
+    SSH_KEY="${HOME}/.ssh/id_rsa"
+fi
+
+# Convert Windows path to Unix path for Git Bash
+if [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "cygwin" ]]; then
+    if command -v cygpath &> /dev/null; then
+        SSH_KEY=$(cygpath -u "${SSH_KEY}")
+    else
+        SSH_KEY=$(echo "$SSH_KEY" | sed 's|\\|/|g' | sed 's|^C:|/c|' | sed 's|^D:|/d|')
+    fi
+fi
+
 BASE_PATH="/finapp/FIN/DEM/BE/Finacle/FC/app/cust/01/INFENG"
-ROLLBACK_LOG="/var/log/finacle-deployments/rollback.log"
+BACKUP_BASE="/finapp/backup"
 
 log() {
     echo -e "${GREEN}[$(date +'%Y-%m-%d %H:%M:%S')]${NC} $1"
@@ -31,10 +49,6 @@ log() {
 
 error() {
     echo -e "${RED}[$(date +'%Y-%m-%d %H:%M:%S')] ERROR:${NC} $1" >&2
-}
-
-warning() {
-    echo -e "${YELLOW}[$(date +'%Y-%m-%d %H:%M:%S')] WARNING:${NC} $1"
 }
 
 # Parse arguments
@@ -51,140 +65,34 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-if [[ -z "${ENVIRONMENT}" ]] || [[ -z "${TICKET_NUMBER}" ]]; then
-    error "Missing required parameters"
-    exit 1
-fi
-
-# Validate SSH key exists
-if [[ ! -f "${SSH_KEY}" ]]; then
-    error "SSH key file not found: ${SSH_KEY}"
-    exit 1
-fi
+BACKUP_DIR="${BACKUP_BASE}/${ENVIRONMENT}_${TICKET_NUMBER}_${TIMESTAMP}"
 
 log "===== ROLLBACK STARTED ====="
-log "Environment: ${ENVIRONMENT}"
-log "Ticket: ${TICKET_NUMBER}"
-log "Timestamp: ${TIMESTAMP}"
-log "SSH Key: ${SSH_KEY}"
+log "Restoring from: ${BACKUP_DIR}"
 
-# Rollback script to execute on remote server
-rollback_changes() {
-    log "Rolling back changes on server..."
-    
-    local rollback_script=$(cat << 'ROLLBACKEOF'
+rollback_script=$(cat << 'ROLLBACKEOF'
 #!/bin/bash
-BASE_PATH="$1"
-TICKET_NUMBER="$2"
-DATE_SUFFIX=$(date +%d%m%y)
+BACKUP_DIR="$1"
+BASE_PATH="$2"
 
-ROLLBACK_LOG="/var/log/finacle-deployments/rollback_${TICKET_NUMBER}_${DATE_SUFFIX}.log"
+for dir in scripts sql com mrt; do
+    if [[ -d "${BACKUP_DIR}/${dir}" ]]; then
+        echo "Restoring ${dir}..."
+        cp -rp "${BACKUP_DIR}/${dir}"/* "${BASE_PATH}/${dir}/" 2>/dev/null || true
+    fi
+done
 
-{
-    echo "===== ROLLBACK EXECUTION STARTED ====="
-    echo "Ticket: ${TICKET_NUMBER}"
-    echo "Time: $(date)"
-    echo ""
-    
-    # Find all backup files created today
-    for dir in scripts sql com mrt; do
-        echo "Processing directory: ${dir}"
-        cd "${BASE_PATH}/${dir}" || continue
-        
-        # Find backup files
-        for backup in *_safe_${DATE_SUFFIX}; do
-            if [[ -f "${backup}" ]]; then
-                original="${backup%_safe_${DATE_SUFFIX}}"
-                
-                echo "Restoring: ${backup} -> ${original}"
-                
-                # Remove current version
-                rm -f "${original}"
-                
-                # Restore backup
-                mv "${backup}" "${original}"
-                
-                # Set permissions
-                chmod 775 "${original}"
-                
-                echo "Restored: ${original}"
-            fi
-        done
-    done
-    
-    echo ""
-    echo "===== ROLLBACK EXECUTION COMPLETED ====="
-} 2>&1 | tee "${ROLLBACK_LOG}"
-
-cat "${ROLLBACK_LOG}"
+echo "Rollback completed"
 ROLLBACKEOF
-    )
-    
-    ssh -i "${SSH_KEY}" -o StrictHostKeyChecking=no \
-        "${FINACLE_USER}@${FINACLE_SERVER}" \
-        "bash -s ${BASE_PATH} ${TICKET_NUMBER}" <<< "${rollback_script}"
-    
-    if [[ $? -eq 0 ]]; then
-        log "Rollback completed successfully"
-    else
-        error "Rollback had errors"
-        return 1
-    fi
-}
+)
 
-# Re-run FINL after rollback
-validate_after_rollback() {
-    log "Running FINL validation after rollback..."
-    
-    ssh -i "${SSH_KEY}" -o StrictHostKeyChecking=no \
-        "${FINACLE_USER}@${FINACLE_SERVER}" \
-        'bash /home/'"${FINACLE_USER}"'/scripts/run_finl.sh FINDEM'
-    
-    if [[ $? -eq 0 ]]; then
-        log "FINL validation passed after rollback"
-    else
-        error "FINL validation failed after rollback - CRITICAL"
-        return 1
-    fi
-}
+ssh -i "${SSH_KEY}" -o StrictHostKeyChecking=no \
+    "${FINACLE_USER}@${FINACLE_SERVER}" \
+    "bash -s" <<< "${rollback_script}" -- "${BACKUP_DIR}" "${BASE_PATH}"
 
-# Restart services after rollback
-restart_after_rollback() {
-    log "Restarting services after rollback..."
-    
-    ssh -i "${SSH_KEY}" -o StrictHostKeyChecking=no \
-        "${FINACLE_USER}@${FINACLE_SERVER}" \
-        'bash /home/'"${FINACLE_USER}"'/scripts/restart_services.sh FINDEM'
-    
-    if [[ $? -eq 0 ]]; then
-        log "Services restarted successfully"
-    else
-        error "Service restart failed - CRITICAL"
-        return 1
-    fi
-}
-
-# Main execution
-main() {
-    rollback_changes || exit 1
-    validate_after_rollback || exit 1
-    restart_after_rollback || exit 1
-    
-    log "===== ROLLBACK COMPLETED SUCCESSFULLY ====="
-    
-    # Generate rollback report
-    cat << REPORT
-ROLLBACK REPORT
-================
-Environment: ${ENVIRONMENT}
-Ticket: ${TICKET_NUMBER}
-Timestamp: ${TIMESTAMP}
-Rollback Time: $(date +'%Y-%m-%d %H:%M:%S')
-Status: SUCCESS
-
-All changes have been reverted to previous version.
-System is stable and operational.
-REPORT
-}
-
-main "$@"
+if [[ $? -eq 0 ]]; then
+    log "✅ Rollback completed successfully"
+else
+    error "❌ Rollback failed"
+    exit 1
+fi

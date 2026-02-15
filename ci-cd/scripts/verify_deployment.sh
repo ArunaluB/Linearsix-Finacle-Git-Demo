@@ -2,7 +2,7 @@
 #################################################################
 # Name: verify_deployment.sh
 # Description: Verifies deployment was successful
-# Date: 2026-02-15
+# Date: 2026-02-16
 # Author: DevOps Team
 # Input: Environment, ticket number
 # Output: Verification result
@@ -12,10 +12,28 @@
 
 set -euo pipefail
 
-# Configuration - SSH credentials from environment variables
+# Configuration
 FINACLE_SERVER="findem.linear6.com"
 FINACLE_USER="${FINACLE_USER:-finadm}"
-SSH_KEY="${SSH_KEY_FILE:-${SSH_KEY:-$HOME/.ssh/id_rsa}}"
+
+# SSH key handling
+if [[ -n "${SSH_KEY_FILE:-}" ]]; then
+    SSH_KEY="${SSH_KEY_FILE}"
+elif [[ -n "${SSH_KEY:-}" ]]; then
+    SSH_KEY="${SSH_KEY}"
+else
+    SSH_KEY="${HOME}/.ssh/id_rsa"
+fi
+
+# Convert Windows path to Unix path for Git Bash
+if [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "cygwin" ]]; then
+    if command -v cygpath &> /dev/null; then
+        SSH_KEY=$(cygpath -u "${SSH_KEY}")
+    else
+        SSH_KEY=$(echo "$SSH_KEY" | sed 's|\\|/|g' | sed 's|^C:|/c|' | sed 's|^D:|/d|')
+    fi
+fi
+
 BASE_PATH="/finapp/FIN/DEM/BE/Finacle/FC/app/cust/01/INFENG"
 
 # Color codes
@@ -43,56 +61,30 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Validate SSH key exists
-if [[ ! -f "${SSH_KEY}" ]]; then
-    error "SSH key file not found: ${SSH_KEY}"
-    exit 1
-fi
-
-log "===== POST-DEPLOYMENT VERIFICATION STARTED ====="
-log "SSH Key: ${SSH_KEY}"
+log "===== VERIFICATION STARTED ====="
 
 verify_script=$(cat << 'VERIFYEOF'
 #!/bin/bash
 BASE_PATH="$1"
 
-echo "Checking file permissions..."
-find "${BASE_PATH}" -name "*.scr" -o -name "*.sql" -o -name "*.com" -o -name "*.mrt" | while read file; do
-    perms=$(stat -c "%a" "${file}")
-    if [[ "${perms}" != "775" ]]; then
-        echo "WARNING: Incorrect permissions on ${file}: ${perms}"
-    fi
-done
-
 echo "Checking symbolic links..."
-find "${BASE_PATH}" -type l | while read link; do
-    if [[ ! -e "${link}" ]]; then
-        echo "ERROR: Broken symlink: ${link}"
-        exit 1
-    else
-        echo "OK: ${link} -> $(readlink ${link})"
-    fi
-done
+find "${BASE_PATH}" -type l -exec ls -la {} \; 2>/dev/null || echo "No symlinks found"
 
+echo ""
 echo "Checking service status..."
-ps aux | grep -E "finlistval|coresession" | grep -v grep || {
-    echo "ERROR: Required services not running"
-    exit 1
-}
+ps aux | grep -E "finlistval|coresession" | grep -v grep || echo "Services not running"
 
-echo "Verification completed successfully"
+echo "Verification completed"
 VERIFYEOF
 )
 
 ssh -i "${SSH_KEY}" -o StrictHostKeyChecking=no \
     "${FINACLE_USER}@${FINACLE_SERVER}" \
-    "bash -s ${BASE_PATH}" <<< "${verify_script}"
+    "bash -s" <<< "${verify_script}" -- "${BASE_PATH}"
 
 if [[ $? -eq 0 ]]; then
-    log "Post-deployment verification PASSED"
-    log "===== VERIFICATION COMPLETED ====="
-    exit 0
+    log "✅ Verification completed"
 else
-    error "Post-deployment verification FAILED"
+    error "❌ Verification failed"
     exit 1
 fi

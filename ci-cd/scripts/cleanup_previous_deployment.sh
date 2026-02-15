@@ -1,41 +1,34 @@
 #!/bin/bash
 #################################################################
 # Name: cleanup_previous_deployment.sh
-# Description: Cleans up previous deployment folders when switching branches/environments
-# Date: 2026-02-15
+# Description: Cleans up previous deployment folders
+# Date: 2026-02-16
 # Author: DevOps Team
-# Input: Current environment, ticket number
-# Output: Cleaned server directories
+# Input: Environment, ticket number
+# Output: Cleaned directories
 # Tables Used: None
-# Calling Script: Jenkinsfile (before deployment)
+# Calling Script: Jenkinsfile
 #################################################################
 
 set -euo pipefail
 
-# Color codes
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m'
-
-# Configuration - SSH credentials from environment variables
+# Configuration
 FINACLE_SERVER="findem.linear6.com"
 FINACLE_USER="${FINACLE_USER:-finadm}"
-SSH_KEY="${SSH_KEY_FILE:-${SSH_KEY:-$HOME/.ssh/id_rsa}}"
+
+if [[ -n "${SSH_KEY_FILE:-}" ]]; then
+    SSH_KEY="${SSH_KEY_FILE}"
+else
+    SSH_KEY="${HOME}/.ssh/id_rsa"
+fi
+
+if [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "cygwin" ]]; then
+    if command -v cygpath &> /dev/null; then
+        SSH_KEY=$(cygpath -u "${SSH_KEY}")
+    fi
+fi
+
 PATCH_BASE="/finutils/customizations"
-FINAL_DELIVERY="/finutils/customizations_10225/Localizations/FinalDelivery"
-
-log() {
-    echo -e "${GREEN}[$(date +'%Y-%m-%d %H:%M:%S')]${NC} $1"
-}
-
-warning() {
-    echo -e "${YELLOW}[$(date +'%Y-%m-%d %H:%M:%S')] WARNING:${NC} $1"
-}
-
-error() {
-    echo -e "${RED}[$(date +'%Y-%m-%d %H:%M:%S')] ERROR:${NC} $1" >&2
-}
 
 # Parse arguments
 CURRENT_ENV=""
@@ -49,20 +42,6 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Validate SSH key exists
-if [[ ! -f "${SSH_KEY}" ]]; then
-    error "SSH key file not found: ${SSH_KEY}"
-    error "Please set SSH_KEY_FILE environment variable or SSH_KEY variable"
-    exit 1
-fi
-
-log "===== CLEANING UP PREVIOUS DEPLOYMENT FOLDERS ====="
-log "Current Environment: ${CURRENT_ENV}"
-log "Ticket: ${TICKET_NUMBER}"
-log "SSH Key: ${SSH_KEY}"
-log "Finacle User: ${FINACLE_USER}"
-
-# Cleanup script to run on server
 cleanup_script=$(cat << 'CLEANUPEOF'
 #!/bin/bash
 CURRENT_ENV="$1"
@@ -71,92 +50,30 @@ PATCH_BASE="$3"
 
 PATCH_PATH="${PATCH_BASE}_${TICKET}/Localizations/patchArea"
 
-echo "Current Environment: ${CURRENT_ENV}"
-echo "Patch Base: ${PATCH_PATH}"
-echo ""
-
-# Function to safely remove directory
-safe_remove() {
-    local dir="$1"
-    if [[ -d "${dir}" ]]; then
-        echo "Removing: ${dir}"
-        rm -rf "${dir}"
-        echo "  ✓ Removed"
-    else
-        echo "  - Not found: ${dir}"
-    fi
-}
-
 case ${CURRENT_ENV} in
     "DEV")
-        echo "DEV Environment: Cleaning feature branch folders from previous runs"
-        if [[ -d "${PATCH_PATH}/feature" ]]; then
-            echo "Cleaning old feature branch folders..."
-            rm -rf "${PATCH_PATH}/feature"/*
-            echo "  ✓ Feature folders cleaned"
-        fi
+        rm -rf "${PATCH_PATH}/feature" 2>/dev/null || true
         ;;
-        
     "QA")
-        echo "QA Environment: Removing DEV feature folders"
-        safe_remove "${PATCH_PATH}/feature"
-        
-        echo "Creating QA structure: ${PATCH_PATH}/DEV-${TICKET}"
-        mkdir -p "${PATCH_PATH}/DEV-${TICKET}/scripts"
-        mkdir -p "${PATCH_PATH}/DEV-${TICKET}/sql"
-        mkdir -p "${PATCH_PATH}/DEV-${TICKET}/com"
-        mkdir -p "${PATCH_PATH}/DEV-${TICKET}/mrt"
-        chmod -R 775 "${PATCH_PATH}/DEV-${TICKET}"
+        rm -rf "${PATCH_PATH}/feature" 2>/dev/null || true
+        mkdir -p "${PATCH_PATH}/DEV-${TICKET}"/{scripts,sql,com,mrt}
         ;;
-        
     "UAT")
-        echo "UAT Environment: Removing DEV and QA folders"
-        safe_remove "${PATCH_PATH}/feature"
-        safe_remove "${PATCH_PATH}/DEV-${TICKET}-nirasha"
-        safe_remove "${PATCH_PATH}/DEV-${TICKET}-harsha"
-        safe_remove "${PATCH_PATH}/DEV-${TICKET}-chathuranga"
-        
-        # Keep only main DEV-${TICKET} folder for UAT
-        echo "Creating UAT structure: ${PATCH_PATH}/DEV-${TICKET}"
-        mkdir -p "${PATCH_PATH}/DEV-${TICKET}/scripts"
-        mkdir -p "${PATCH_PATH}/DEV-${TICKET}/sql"
-        mkdir -p "${PATCH_PATH}/DEV-${TICKET}/com"
-        mkdir -p "${PATCH_PATH}/DEV-${TICKET}/mrt"
-        chmod -R 775 "${PATCH_PATH}/DEV-${TICKET}"
+        rm -rf "${PATCH_PATH}/feature" 2>/dev/null || true
+        rm -rf "${PATCH_PATH}/DEV-${TICKET}"-* 2>/dev/null || true
+        mkdir -p "${PATCH_PATH}/DEV-${TICKET}"/{scripts,sql,com,mrt}
         ;;
-        
     "PRODUCTION")
-        echo "PRODUCTION Environment: No patch structure needed"
-        echo "Files will be copied directly to FinalDelivery"
-        
-        # Clean up all patch structures
-        if [[ -d "${PATCH_PATH}" ]]; then
-            echo "Removing entire patch structure (not needed in PRODUCTION)"
-            rm -rf "${PATCH_PATH}"
-        fi
+        rm -rf "${PATCH_PATH}" 2>/dev/null || true
         ;;
 esac
 
-echo ""
-echo "Cleanup completed for ${CURRENT_ENV} environment"
-echo ""
-echo "Current directory structure:"
-if [[ -d "${PATCH_PATH}" ]]; then
-    ls -la "${PATCH_PATH}/" 2>/dev/null || echo "Empty"
-else
-    echo "No patch structure (PRODUCTION mode)"
-fi
+echo "Cleanup completed for ${CURRENT_ENV}"
 CLEANUPEOF
 )
 
 ssh -i "${SSH_KEY}" -o StrictHostKeyChecking=no \
     "${FINACLE_USER}@${FINACLE_SERVER}" \
-    "bash -s ${CURRENT_ENV} ${TICKET_NUMBER} ${PATCH_BASE}" <<< "${cleanup_script}"
+    "bash -s" <<< "${cleanup_script}" -- "${CURRENT_ENV}" "${TICKET_NUMBER}" "${PATCH_BASE}"
 
-if [[ $? -eq 0 ]]; then
-    log "Cleanup completed successfully"
-else
-    warning "Cleanup had some issues (may be normal if directories don't exist)"
-fi
-
-log "===== CLEANUP COMPLETED ====="
+echo "✅ Cleanup completed"

@@ -2,7 +2,7 @@
 #################################################################
 # Name: run_finl.sh
 # Description: Executes FINL validation
-# Date: 2026-02-15
+# Date: 2026-02-16
 # Author: DevOps Team
 # Input: Finacle Installation ID
 # Output: FINL validation result
@@ -17,7 +17,6 @@ FIN_INSTALL_ID="${1:-FINDEM}"
 # Color codes
 RED='\033[0;31m'
 GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
 NC='\033[0m'
 
 log() {
@@ -32,18 +31,13 @@ log "===== FINL VALIDATION STARTED ====="
 log "Installation ID: ${FIN_INSTALL_ID}"
 
 # Execute FINL
-log "Running FINL command..."
-
 finl 2>&1 | tee /tmp/finl_output_$$.log
-
 FINL_EXIT_CODE=${PIPESTATUS[0]}
 
 if [[ ${FINL_EXIT_CODE} -eq 0 ]]; then
-    log "FINL validation PASSED"
-    log "===== FINL VALIDATION COMPLETED SUCCESSFULLY ====="
+    log "✅ FINL validation PASSED"
     exit 0
 else
-    error "FINL validation FAILED with exit code: ${FINL_EXIT_CODE}"
-    error "Check log: /tmp/finl_output_$$.log"
+    error "❌ FINL validation FAILED"
     exit 1
 fi

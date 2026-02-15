@@ -2,11 +2,11 @@
 #################################################################
 # Name: deploy_sql.sh
 # Description: Deploys SQL files to Finacle database
-# Date: 2026-02-15
+# Date: 2026-02-16
 # Author: DevOps Team
 # Input: File path, environment, ticket number
 # Output: Executed SQL changes
-# Tables Used: Variable - depends on SQL content
+# Tables Used: Variable
 # Calling Script: Jenkinsfile
 #################################################################
 
@@ -15,13 +15,30 @@ set -euo pipefail
 # Color codes
 RED='\033[0;31m'
 GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
 NC='\033[0m'
 
-# Configuration - SSH credentials from environment variables
+# Configuration
 FINACLE_SERVER="findem.linear6.com"
 FINACLE_USER="${FINACLE_USER:-finadm}"
-SSH_KEY="${SSH_KEY_FILE:-${SSH_KEY:-$HOME/.ssh/id_rsa}}"
+
+# SSH key handling
+if [[ -n "${SSH_KEY_FILE:-}" ]]; then
+    SSH_KEY="${SSH_KEY_FILE}"
+elif [[ -n "${SSH_KEY:-}" ]]; then
+    SSH_KEY="${SSH_KEY}"
+else
+    SSH_KEY="${HOME}/.ssh/id_rsa"
+fi
+
+# Convert Windows path to Unix path for Git Bash
+if [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "cygwin" ]]; then
+    if command -v cygpath &> /dev/null; then
+        SSH_KEY=$(cygpath -u "${SSH_KEY}")
+    else
+        SSH_KEY=$(echo "$SSH_KEY" | sed 's|\\|/|g' | sed 's|^C:|/c|' | sed 's|^D:|/d|')
+    fi
+fi
+
 BASE_PATH="/finapp/FIN/DEM/BE/Finacle/FC/app/cust/01/INFENG"
 PATCH_BASE="/finutils/customizations"
 SQL_LOG_DIR="/var/log/finacle-sql"
@@ -54,91 +71,50 @@ if [[ -z "${FILE_PATH}" ]] || [[ -z "${ENVIRONMENT}" ]] || [[ -z "${TICKET_NUMBE
     exit 1
 fi
 
-# Validate SSH key exists
-if [[ ! -f "${SSH_KEY}" ]]; then
-    error "SSH key file not found: ${SSH_KEY}"
-    exit 1
-fi
-
 FILENAME=$(basename "${FILE_PATH}")
 
 log "===== SQL DEPLOYMENT STARTED ====="
 log "File: ${FILENAME}"
 log "Environment: ${ENVIRONMENT}"
 log "Ticket: ${TICKET_NUMBER}"
-log "SSH Key: ${SSH_KEY}"
-
-# Backup existing SQL file if present
-backup_sql_file() {
-    log "Checking for existing SQL file..."
-    
-    local backup_script=$(cat << 'SQLBACKUPEOF'
-#!/bin/bash
-SQL_PATH="$1"
-FILENAME="$2"
-DATE_SUFFIX=$(date +%d%m%y)
-
-SQL_FILE="${SQL_PATH}/sql/${FILENAME}"
-
-if [[ -f "${SQL_FILE}" ]]; then
-    BACKUP_NAME="${FILENAME}_backup_${DATE_SUFFIX}"
-    cp -p "${SQL_FILE}" "${SQL_PATH}/sql/${BACKUP_NAME}"
-    echo "SQL backup created: ${BACKUP_NAME}"
-fi
-SQLBACKUPEOF
-    )
-    
-    ssh -i "${SSH_KEY}" -o StrictHostKeyChecking=no \
-        "${FINACLE_USER}@${FINACLE_SERVER}" \
-        "bash -s ${BASE_PATH} ${FILENAME}" <<< "${backup_script}"
-}
 
 # Copy SQL file to server
-copy_sql_to_server() {
-    log "Copying SQL file to server..."
-    
-    local patch_path="${PATCH_BASE}_${TICKET_NUMBER}/Localizations/patchArea"
-    local remote_sql_path="${patch_path}/cust/01/INFENG/sql/${FILENAME}"
-    
-    # Create directory if needed
-    ssh -i "${SSH_KEY}" -o StrictHostKeyChecking=no \
-        "${FINACLE_USER}@${FINACLE_SERVER}" \
-        "mkdir -p ${patch_path}/cust/01/INFENG/sql"
-    
-    # Copy file
-    scp -i "${SSH_KEY}" -o StrictHostKeyChecking=no \
-        "${FILE_PATH}" "${FINACLE_USER}@${FINACLE_SERVER}:${remote_sql_path}"
-    
-    # Set permissions
-    ssh -i "${SSH_KEY}" -o StrictHostKeyChecking=no \
-        "${FINACLE_USER}@${FINACLE_SERVER}" \
-        "chmod 775 ${remote_sql_path}"
-    
-    log "SQL file copied successfully"
-}
+log "Copying SQL file to server..."
 
-# Execute SQL file
-execute_sql() {
-    log "Executing SQL file in database..."
-    
-    local patch_path="${PATCH_BASE}_${TICKET_NUMBER}/Localizations/patchArea"
-    local sql_file="${patch_path}/cust/01/INFENG/sql/${FILENAME}"
-    
-    local sql_exec_script=$(cat << 'SQLEXECEOF'
+PATCH_PATH="${PATCH_BASE}_${TICKET_NUMBER}/Localizations/patchArea"
+REMOTE_SQL_PATH="${PATCH_PATH}/cust/01/INFENG/sql/${FILENAME}"
+
+ssh -i "${SSH_KEY}" -o StrictHostKeyChecking=no \
+    "${FINACLE_USER}@${FINACLE_SERVER}" \
+    "mkdir -p ${PATCH_PATH}/cust/01/INFENG/sql"
+
+scp -i "${SSH_KEY}" -o StrictHostKeyChecking=no \
+    "${FILE_PATH}" "${FINACLE_USER}@${FINACLE_SERVER}:${REMOTE_SQL_PATH}"
+
+ssh -i "${SSH_KEY}" -o StrictHostKeyChecking=no \
+    "${FINACLE_USER}@${FINACLE_SERVER}" \
+    "chmod 775 ${REMOTE_SQL_PATH}"
+
+# Execute SQL
+log "Executing SQL in database..."
+
+sql_exec_script=$(cat << 'SQLEXECEOF'
 #!/bin/bash
 SQL_FILE="$1"
-LOG_FILE="$2"
+LOG_DIR="$2"
+FILENAME="$3"
 
-# Create log directory
-mkdir -p $(dirname "${LOG_FILE}")
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+LOG_FILE="${LOG_DIR}/${FILENAME}_${TIMESTAMP}.log"
 
-# Execute SQL using psq (Finacle's PostgreSQL client)
+mkdir -p "${LOG_DIR}"
+
 {
     echo "=== SQL Execution Started: $(date) ==="
     echo "File: ${SQL_FILE}"
     echo ""
     
-    # Enter Finacle database session and execute
+    # Execute SQL using psq
     psq << SQLCMD
 \i ${SQL_FILE}
 \q
@@ -153,30 +129,17 @@ SQLCMD
     exit ${SQL_EXIT_CODE}
 } 2>&1 | tee -a "${LOG_FILE}"
 SQLEXECEOF
-    )
-    
-    local log_file="${SQL_LOG_DIR}/${FILENAME}_$(date +%Y%m%d_%H%M%S).log"
-    
-    ssh -i "${SSH_KEY}" -o StrictHostKeyChecking=no \
-        "${FINACLE_USER}@${FINACLE_SERVER}" \
-        "bash -s ${sql_file} ${log_file}" <<< "${sql_exec_script}"
-    
-    if [[ $? -eq 0 ]]; then
-        log "SQL executed successfully"
-        log "SQL log: ${log_file}"
-    else
-        error "SQL execution failed"
-        return 1
-    fi
-}
+)
 
-# Main execution
-main() {
-    backup_sql_file || exit 1
-    copy_sql_to_server || exit 1
-    execute_sql || exit 1
-    
-    log "===== SQL DEPLOYMENT COMPLETED ====="
-}
+ssh -i "${SSH_KEY}" -o StrictHostKeyChecking=no \
+    "${FINACLE_USER}@${FINACLE_SERVER}" \
+    "bash -s" <<< "${sql_exec_script}" -- "${REMOTE_SQL_PATH}" "${SQL_LOG_DIR}" "${FILENAME}"
 
-main "$@"
+if [[ $? -eq 0 ]]; then
+    log "✅ SQL executed successfully"
+else
+    error "❌ SQL execution failed"
+    exit 1
+fi
+
+log "===== SQL DEPLOYMENT COMPLETED ====="

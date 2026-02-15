@@ -2,7 +2,7 @@
 #################################################################
 # Name: deploy_com_mrt.sh
 # Description: Deploys .com and .mrt files to Finacle
-# Date: 2026-02-15
+# Date: 2026-02-16
 # Author: DevOps Team
 # Input: File path, environment, ticket number
 # Output: Executed COM/MRT files
@@ -12,10 +12,28 @@
 
 set -euo pipefail
 
-# Configuration - SSH credentials from environment variables
+# Configuration
 FINACLE_SERVER="findem.linear6.com"
 FINACLE_USER="${FINACLE_USER:-finadm}"
-SSH_KEY="${SSH_KEY_FILE:-${SSH_KEY:-$HOME/.ssh/id_rsa}}"
+
+# SSH key handling
+if [[ -n "${SSH_KEY_FILE:-}" ]]; then
+    SSH_KEY="${SSH_KEY_FILE}"
+elif [[ -n "${SSH_KEY:-}" ]]; then
+    SSH_KEY="${SSH_KEY}"
+else
+    SSH_KEY="${HOME}/.ssh/id_rsa"
+fi
+
+# Convert Windows path to Unix path for Git Bash
+if [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "cygwin" ]]; then
+    if command -v cygpath &> /dev/null; then
+        SSH_KEY=$(cygpath -u "${SSH_KEY}")
+    else
+        SSH_KEY=$(echo "$SSH_KEY" | sed 's|\\|/|g' | sed 's|^C:|/c|' | sed 's|^D:|/d|')
+    fi
+fi
+
 BASE_PATH="/finapp/FIN/DEM/BE/Finacle/FC/app/cust/01/INFENG"
 PATCH_BASE="/finutils/customizations"
 
@@ -41,12 +59,6 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Validate SSH key exists
-if [[ ! -f "${SSH_KEY}" ]]; then
-    error "SSH key file not found: ${SSH_KEY}"
-    exit 1
-fi
-
 FILENAME=$(basename "${FILE_PATH}")
 EXTENSION="${FILENAME##*.}"
 
@@ -54,77 +66,37 @@ log "===== COM/MRT DEPLOYMENT STARTED ====="
 log "File: ${FILENAME}"
 log "Type: ${EXTENSION}"
 log "Environment: ${ENVIRONMENT}"
-log "SSH Key: ${SSH_KEY}"
+log "Ticket: ${TICKET_NUMBER}"
 
-# Backup existing file
-backup_file() {
-    log "Creating backup of existing ${EXTENSION} file..."
-    
-    local backup_script=$(cat << 'COMBACKUPEOF'
-#!/bin/bash
-BASE_PATH="$1"
-FILENAME="$2"
-EXTENSION="$3"
-DATE_SUFFIX=$(date +%d%m%y)
+# Copy file to server
+PATCH_PATH="${PATCH_BASE}_${TICKET_NUMBER}/Localizations/patchArea"
+REMOTE_PATH="${PATCH_PATH}/cust/01/INFENG/${EXTENSION}/${FILENAME}"
 
-FILE_PATH="${BASE_PATH}/${EXTENSION}/${FILENAME}"
+ssh -i "${SSH_KEY}" -o StrictHostKeyChecking=no \
+    "${FINACLE_USER}@${FINACLE_SERVER}" \
+    "mkdir -p ${PATCH_PATH}/cust/01/INFENG/${EXTENSION}"
 
-if [[ -f "${FILE_PATH}" ]]; then
-    BACKUP_NAME="${FILENAME}_backup_${DATE_SUFFIX}"
-    cp -p "${FILE_PATH}" "${BASE_PATH}/${EXTENSION}/${BACKUP_NAME}"
-    echo "Backup created: ${BACKUP_NAME}"
-fi
-COMBACKUPEOF
-    )
-    
-    ssh -i "${SSH_KEY}" -o StrictHostKeyChecking=no \
-        "${FINACLE_USER}@${FINACLE_SERVER}" \
-        "bash -s ${BASE_PATH} ${FILENAME} ${EXTENSION}" <<< "${backup_script}"
-}
+scp -i "${SSH_KEY}" -o StrictHostKeyChecking=no \
+    "${FILE_PATH}" "${FINACLE_USER}@${FINACLE_SERVER}:${REMOTE_PATH}"
 
-# Deploy COM/MRT file
-deploy_file() {
-    log "Deploying ${EXTENSION} file to patch area..."
-    
-    local patch_path="${PATCH_BASE}_${TICKET_NUMBER}/Localizations/patchArea"
-    local remote_path="${patch_path}/cust/01/INFENG/${EXTENSION}/${FILENAME}"
-    
-    # Create directory
-    ssh -i "${SSH_KEY}" -o StrictHostKeyChecking=no \
-        "${FINACLE_USER}@${FINACLE_SERVER}" \
-        "mkdir -p ${patch_path}/cust/01/INFENG/${EXTENSION}"
-    
-    # Copy file
-    scp -i "${SSH_KEY}" -o StrictHostKeyChecking=no \
-        "${FILE_PATH}" "${FINACLE_USER}@${FINACLE_SERVER}:${remote_path}"
-    
-    # Set permissions
-    ssh -i "${SSH_KEY}" -o StrictHostKeyChecking=no \
-        "${FINACLE_USER}@${FINACLE_SERVER}" \
-        "chmod 775 ${remote_path}"
-    
-    log "File deployed to patch area"
-}
+ssh -i "${SSH_KEY}" -o StrictHostKeyChecking=no \
+    "${FINACLE_USER}@${FINACLE_SERVER}" \
+    "chmod 775 ${REMOTE_PATH}"
 
-# Execute COM file
-execute_com() {
-    log "Executing ${FILENAME}..."
+# Execute if COM file
+if [[ "${EXTENSION}" == "com" ]]; then
+    log "Executing COM file..."
     
-    local patch_path="${PATCH_BASE}_${TICKET_NUMBER}/Localizations/patchArea"
-    local com_path="${patch_path}/cust/01/INFENG/com"
-    
-    local exec_script=$(cat << 'COMEXECEOF'
+    exec_script=$(cat << 'COMEXECEOF'
 #!/bin/bash
 COM_PATH="$1"
 FILENAME="$2"
-FIN_INSTALL_ID="$3"
 
 cd "${COM_PATH}" || exit 1
 
-# Execute exectrusteduser.sh
 exectrusteduser.sh << EXECCMD
 . .profile
-${FIN_INSTALL_ID}
+FINDEM
 ./${FILENAME}
 exit
 EXECCMD
@@ -133,29 +105,10 @@ echo "COM execution completed"
 COMEXECEOF
     )
     
+    COM_PATH="${PATCH_PATH}/cust/01/INFENG/com"
     ssh -i "${SSH_KEY}" -o StrictHostKeyChecking=no \
         "${FINACLE_USER}@${FINACLE_SERVER}" \
-        "bash -s ${com_path} ${FILENAME} ${FIN_INSTALL_ID:-FINDEM}" <<< "${exec_script}"
-    
-    if [[ $? -eq 0 ]]; then
-        log "COM file executed successfully"
-    else
-        error "COM execution failed"
-        return 1
-    fi
-}
+        "bash -s" <<< "${exec_script}" -- "${COM_PATH}" "${FILENAME}"
+fi
 
-# Main execution
-main() {
-    backup_file || exit 1
-    deploy_file || exit 1
-    
-    # Execute if it's a COM file
-    if [[ "${EXTENSION}" == "com" ]]; then
-        execute_com || exit 1
-    fi
-    
-    log "===== COM/MRT DEPLOYMENT COMPLETED ====="
-}
-
-main "$@"
+log "✅ COM/MRT deployment completed"
