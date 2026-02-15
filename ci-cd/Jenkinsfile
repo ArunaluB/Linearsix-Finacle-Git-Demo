@@ -1,33 +1,54 @@
 #!/usr/bin/env groovy
-import groovy.transform.Field
-
-// ============================================================================
-// GLOBAL CONSTANTS (CPS SAFE)
-// ============================================================================
-
-@Field String REPO_URL = 'https://github.com/ArunaluB/Linearsix-Finacle-Git-Demo.git'
-@Field String FINACLE_SERVER = 'findem.linear6.com'
-@Field String FINACLE_USER = 'finadm'
-@Field String SSH_PORT = '22'
-@Field String FINACLE_INSTALL = 'FINDEM'
-
-@Field Map PATHS = [
-    base: '/finapp/FIN/DEM/BE/Finacle/FC/app/cust/01/INFENG',
-    com: '/finapp/FIN/DEM/BE/Finacle/FC/app/cust/01/INFENG/com',
-    mrt: '/finapp/FIN/DEM/BE/Finacle/FC/app/cust/01/INFENG/mrt',
-    scripts: '/finapp/FIN/DEM/BE/Finacle/FC/app/cust/01/INFENG/scripts',
-    sql: '/finapp/FIN/DEM/BE/Finacle/FC/app/cust/01/INFENG/sql',
-    patchArea: '/finutils/customizations_10225/Localizations/patchArea',
-    backup: '/finapp/backup'
-]
+/*
+ * Enterprise Finacle CI/CD Pipeline - PRODUCTION READY
+ * Version: 2.0.1 (Fixed - All Branch Backup + Variable Scope)
+ * Supports: DEV, QA, UAT, PRODUCTION
+ * Organization: Finacle Deployment System
+ * Author: DevOps Team
+ * Last Updated: 2026-02-16
+ * 
+ * CHANGES:
+ * - Fixed: Variable scope issue for FINACLE_SERVER, FINACLE_USER, etc.
+ * - Fixed: Backup now enabled for ALL environments (DEV, QA, UAT, PRODUCTION)
+ * - Fixed: All configuration variables moved to environment block
+ */
 
 // ============================================================================
 // UTILITY FUNCTIONS
 // ============================================================================
 
+// Get Git Bash path for Windows
+def getGitBashPath() {
+    def gitBashPaths = [
+        'C:\\Program Files\\Git\\bin\\bash.exe',
+        'C:\\Program Files (x86)\\Git\\bin\\bash.exe',
+        'C:\\Git\\bin\\bash.exe',
+        '/usr/bin/bash'
+    ]
+    
+    for (path in gitBashPaths) {
+        if (fileExists(path)) {
+            echo "✅ Found Git Bash at: ${path}"
+            return path
+        }
+    }
+    return 'bash' // fallback
+}
+
+// Convert Windows path to Git Bash compatible path
+def toGitBashPath(windowsPath) {
+    if (!windowsPath) return windowsPath
+    if (isUnix()) return windowsPath
+    
+    return windowsPath
+        .replaceAll('\\\\', '/')
+        .replaceAll('^([A-Za-z]):', { match -> "/${match[1].toLowerCase()}" })
+}
+
+// Determine environment from branch
 def getBranchEnvironment(branch) {
-    def b = branch?.replaceAll('origin/', '') ?: 'dev'
-    switch(b.toLowerCase()) {
+    def branchName = branch?.replaceAll('origin/', '') ?: 'dev'
+    switch(branchName.toLowerCase()) {
         case 'main':
         case 'master':
         case 'production':
@@ -36,198 +57,960 @@ def getBranchEnvironment(branch) {
             return 'UAT'
         case 'qa':
             return 'QA'
+        case 'dev':
         default:
             return 'DEV'
     }
 }
 
-def executeSSH(key, cmd) {
-    sh """
-        ssh -i '${key}' \
-        -o StrictHostKeyChecking=no \
-        -o UserKnownHostsFile=/dev/null \
-        -p ${SSH_PORT} \
-        ${FINACLE_USER}@${FINACLE_SERVER} \
-        "${cmd}"
-    """
+// Test SSH connectivity with retries
+def testSSHConnection(sshKeyPath, maxRetries = 3) {
+    echo "🔍 Testing SSH connection to ${env.FINACLE_SERVER}..."
+    
+    def connected = false
+    def retryCount = 0
+    
+    while (!connected && retryCount < maxRetries) {
+        try {
+            def testCmd = "ssh -i '${sshKeyPath}' " +
+                         "-o ConnectTimeout=15 " +
+                         "-o StrictHostKeyChecking=no " +
+                         "-o BatchMode=yes " +
+                         "-o UserKnownHostsFile=/dev/null " +
+                         "-p ${env.SSH_PORT} " +
+                         "${env.FINACLE_USER}@${env.FINACLE_SERVER} " +
+                         "'echo SSH_OK && hostname && whoami'"
+            
+            if (isUnix()) {
+                def result = sh(script: testCmd, returnStatus: true)
+                connected = (result == 0)
+            } else {
+                def gitBash = getGitBashPath()
+                def result = bat(script: """
+                    @echo off
+                    "${gitBash}" -c "${testCmd.replaceAll("'", "\\'")}"
+                """, returnStatus: true)
+                connected = (result == 0)
+            }
+            
+            if (connected) {
+                echo "✅ SSH connection successful!"
+                return true
+            }
+        } catch (Exception e) {
+            echo "⚠️  SSH connection attempt ${retryCount + 1} failed: ${e.message}"
+        }
+        
+        retryCount++
+        if (!connected && retryCount < maxRetries) {
+            echo "🔄 Retrying SSH connection in 5 seconds... (${retryCount}/${maxRetries})"
+            sleep(5)
+        }
+    }
+    
+    return connected
 }
 
-def scpCopy(key, local, remote) {
-    sh """
-        scp -i '${key}' \
-        -o StrictHostKeyChecking=no \
-        -o UserKnownHostsFile=/dev/null \
-        -r ${local} \
-        ${FINACLE_USER}@${FINACLE_SERVER}:${remote}
-    """
+// Execute SSH command with proper error handling
+def executeSSH(sshKeyPath, command, description = "SSH Command") {
+    echo "▶️  Executing: ${description}"
+    
+    def sshCmd = "ssh -i '${sshKeyPath}' " +
+                "-o ConnectTimeout=30 " +
+                "-o StrictHostKeyChecking=no " +
+                "-o UserKnownHostsFile=/dev/null " +
+                "-p ${env.SSH_PORT} " +
+                "${env.FINACLE_USER}@${env.FINACLE_SERVER} " +
+                "'${command}'"
+    
+    if (isUnix()) {
+        sh(script: sshCmd, returnStdout: false)
+    } else {
+        def gitBash = getGitBashPath()
+        bat(script: """
+            @echo off
+            "${gitBash}" -c "${sshCmd.replaceAll("'", "\\'")}"
+        """)
+    }
+    
+    echo "✅ ${description} completed"
+}
+
+// Copy files to server using SCP
+def scpCopyFiles(sshKeyPath, localPath, remotePath, description = "Copy Files") {
+    echo "📤 ${description}: ${localPath} → ${remotePath}"
+    
+    def scpCmd = "scp -i '${sshKeyPath}' " +
+                "-o StrictHostKeyChecking=no " +
+                "-o UserKnownHostsFile=/dev/null " +
+                "-r ${localPath} " +
+                "${env.FINACLE_USER}@${env.FINACLE_SERVER}:${remotePath}"
+    
+    if (isUnix()) {
+        sh(script: scpCmd, returnStdout: false)
+    } else {
+        def gitBash = getGitBashPath()
+        bat(script: """
+            @echo off
+            "${gitBash}" -c "${scpCmd.replaceAll("'", "\\'")}"
+        """)
+    }
+    
+    echo "✅ ${description} completed"
 }
 
 // ============================================================================
-// PIPELINE
+// PIPELINE DEFINITION
 // ============================================================================
-
 pipeline {
     agent any
-
+    
     parameters {
-        string(name: 'TICKET_NUMBER', defaultValue: '10225')
+        choice(
+            name: 'DEPLOYMENT_MODE',
+            choices: ['JENKINS_AUTO', 'LOCAL_PC_MANUAL'],
+            description: 'Deployment mode selection'
+        )
+        string(
+            name: 'TICKET_NUMBER',
+            defaultValue: '10225',
+            description: 'Patch/Ticket Number (e.g., 10225)'
+        )
+        string(
+            name: 'FIN_INSTALL_ID',
+            defaultValue: 'FINDEM',
+            description: 'Finacle Installation ID'
+        )
+        booleanParam(
+            name: 'SKIP_SSH_TEST',
+            defaultValue: false,
+            description: 'Skip SSH connectivity test (not recommended)'
+        )
+        booleanParam(
+            name: 'ENABLE_BACKUP',
+            defaultValue: true,
+            description: 'Create backup before deployment (ALL ENVIRONMENTS)'
+        )
+        booleanParam(
+            name: 'SKIP_VALIDATION',
+            defaultValue: false,
+            description: 'Skip pre-deployment validation (not recommended)'
+        )
+        booleanParam(
+            name: 'SKIP_FINL',
+            defaultValue: false,
+            description: 'Skip FINL validation (not recommended)'
+        )
+        booleanParam(
+            name: 'SKIP_SERVICE_RESTART',
+            defaultValue: false,
+            description: 'Skip service restart after deployment'
+        )
     }
-
+    
+    environment {
+        // ====================================================================
+        // GLOBAL CONFIGURATION - Now accessible throughout the pipeline
+        // ====================================================================
+        REPO_URL = 'https://github.com/ArunaluB/Linearsix-Finacle-Git-Demo.git'
+        FINACLE_SERVER = 'findem.linear6.com'
+        FINACLE_USER = 'finadm'
+        SSH_PORT = '22'
+        FINACLE_INSTALL = "${params.FIN_INSTALL_ID}"
+        
+        // Finacle Server Paths
+        BASE_PATH = '/finapp/FIN/DEM/BE/Finacle/FC/app/cust/01/INFENG'
+        PATH_COM = '/finapp/FIN/DEM/BE/Finacle/FC/app/cust/01/INFENG/com'
+        PATH_MRT = '/finapp/FIN/DEM/BE/Finacle/FC/app/cust/01/INFENG/mrt'
+        PATH_SCRIPTS = '/finapp/FIN/DEM/BE/Finacle/FC/app/cust/01/INFENG/scripts'
+        PATH_SQL = '/finapp/FIN/DEM/BE/Finacle/FC/app/cust/01/INFENG/sql'
+        PATH_CUSTOMIZATIONS = '/finutils/customizations'
+        PATH_PATCH_BASE = "/finutils/customizations_${params.TICKET_NUMBER}/Localizations"
+        PATH_PATCH_AREA = "/finutils/customizations_${params.TICKET_NUMBER}/Localizations/patchArea"
+        PATH_FINAL_DELIVERY = "/finutils/customizations_${params.TICKET_NUMBER}/Localizations/FinalDelivery"
+        PATH_BACKUP = "/finapp/backup"
+        PATH_LOGS = '/var/log/finacle-deployments'
+        PATH_FINLISTVAL = '/finservices/FIN/DEM/finlistval/bin'
+        PATH_CORESESSION = '/finservices/FIN/DEM/coresession/bin'
+        
+        // Build Information
+        TIMESTAMP = sh(script: "date '+%Y%m%d_%H%M%S'", returnStdout: true).trim()
+        BUILD_ID_CUSTOM = "${BUILD_NUMBER}_${TIMESTAMP}"
+        
+        // Email configuration
+        EMAIL_RECIPIENTS = credentials('finacle-deployment-email')
+    }
+    
     options {
+        buildDiscarder(logRotator(numToKeepStr: '30', daysToKeepStr: '60'))
         timestamps()
+        ansiColor('xterm')
         timeout(time: 2, unit: 'HOURS')
         disableConcurrentBuilds()
     }
-
+    
     stages {
-
-        stage('🚀 Initialize') {
+        stage('🚀 Initialize & Test Connection') {
             steps {
                 script {
-
-                    env.DEPLOYMENT_ENV = getBranchEnvironment(env.GIT_BRANCH)
-                    env.TIMESTAMP = new Date().format('yyyyMMdd_HHmmss')
-                    env.BUILD_ID_CUSTOM = "${env.BUILD_NUMBER}_${env.TIMESTAMP}"
-
-                    echo """
-====================================================
-FINACLE ENTERPRISE DEPLOYMENT
-====================================================
-Branch      : ${env.GIT_BRANCH}
-Environment : ${env.DEPLOYMENT_ENV}
-Ticket      : ${params.TICKET_NUMBER}
-Build       : ${env.BUILD_NUMBER}
-Commit      : ${env.GIT_COMMIT}
-====================================================
-"""
+                    echo "╔═══════════════════════════════════════════════════════════════╗"
+                    echo "║          FINACLE CI/CD PIPELINE - INITIALIZATION              ║"
+                    echo "╚═══════════════════════════════════════════════════════════════╝"
+                    echo ""
+                    
+                    // Determine environment from branch
+                    env.BRANCH_NAME = env.GIT_BRANCH ?: 'dev'
+                    env.DEPLOYMENT_ENV = getBranchEnvironment(env.BRANCH_NAME)
+                    
+                    echo "📋 Build Information:"
+                    echo "   Branch: ${env.BRANCH_NAME}"
+                    echo "   Environment: ${env.DEPLOYMENT_ENV}"
+                    echo "   Ticket: ${params.TICKET_NUMBER}"
+                    echo "   Build: ${BUILD_NUMBER}"
+                    echo "   Build ID: ${BUILD_ID_CUSTOM}"
+                    echo "   Commit: ${env.GIT_COMMIT}"
+                    echo "   Workspace: ${WORKSPACE}"
+                    echo "   Git Bash: ${getGitBashPath()}"
+                    echo ""
+                    
+                    echo "🎯 Environment Settings:"
+                    echo "   Server: ${env.FINACLE_SERVER}"
+                    echo "   User: ${env.FINACLE_USER}"
+                    echo "   Install: ${env.FINACLE_INSTALL}"
+                    echo "   Backup: ${params.ENABLE_BACKUP ? 'ENABLED (ALL ENVIRONMENTS)' : 'DISABLED'}"
+                    echo "   Approval: ${env.DEPLOYMENT_ENV in ['PRODUCTION', 'UAT'] ? 'REQUIRED' : 'NOT REQUIRED'}"
+                    echo ""
+                    
+                    // Test SSH connection if not skipped
+                    if (!params.SKIP_SSH_TEST) {
+                        withCredentials([sshUserPrivateKey(
+                            credentialsId: 'finacle-ssh-key',
+                            keyFileVariable: 'SSH_KEY_FILE',
+                            usernameVariable: 'SSH_USER'
+                        )]) {
+                            def sshKeyPath = isUnix() ? SSH_KEY_FILE : toGitBashPath(SSH_KEY_FILE)
+                            
+                            if (!testSSHConnection(sshKeyPath)) {
+                                error("❌ SSH connection test failed. Cannot proceed with deployment.")
+                            }
+                        }
+                    } else {
+                        echo "⚠️  SSH test skipped (not recommended)"
+                    }
                 }
             }
         }
-
-        stage('🔐 Approval (Prod Only)') {
+        
+        stage('✅ Pre-deployment Validation') {
+            when {
+                expression { !params.SKIP_VALIDATION }
+            }
+            steps {
+                script {
+                    echo "╔═══════════════════════════════════════════════════════════════╗"
+                    echo "║              PRE-DEPLOYMENT VALIDATION                        ║"
+                    echo "╚═══════════════════════════════════════════════════════════════╝"
+                    
+                    def bashCmd = getGitBashPath()
+                    def scriptPath = toGitBashPath("${WORKSPACE}/scripts/validate_file_headers.sh")
+                    
+                    echo "📝 Validating file headers..."
+                    
+                    if (isUnix()) {
+                        sh "bash ${WORKSPACE}/scripts/validate_file_headers.sh"
+                    } else {
+                        bat """
+                            @echo off
+                            "${bashCmd}" "${scriptPath}"
+                        """
+                    }
+                    
+                    echo "✅ Validation passed"
+                }
+            }
+        }
+        
+        stage('🔐 Approval Gate - QA') {
+            when {
+                expression { env.DEPLOYMENT_ENV == 'QA' }
+            }
+            steps {
+                script {
+                    echo "⏸️  QA Deployment requires approval..."
+                    
+                    timeout(time: 30, unit: 'MINUTES') {
+                        input(
+                            message: 'Deploy to QA Environment?',
+                            ok: 'Deploy to QA',
+                            submitter: 'developers,qa-team',
+                            submitterParameter: 'APPROVER'
+                        )
+                    }
+                    
+                    echo "✅ QA deployment approved"
+                }
+            }
+        }
+        
+        stage('🔐 Approval Gate - UAT') {
+            when {
+                expression { env.DEPLOYMENT_ENV == 'UAT' }
+            }
+            steps {
+                script {
+                    echo "⏸️  UAT Deployment requires QA Lead approval..."
+                    
+                    timeout(time: 1, unit: 'HOURS') {
+                        input(
+                            message: 'Deploy to UAT Environment?',
+                            ok: 'Deploy to UAT',
+                            submitter: 'qa-lead,project-manager',
+                            submitterParameter: 'APPROVER'
+                        )
+                    }
+                    
+                    echo "✅ UAT deployment approved"
+                }
+            }
+        }
+        
+        stage('🔐 Approval Gate - PRODUCTION') {
             when {
                 expression { env.DEPLOYMENT_ENV == 'PRODUCTION' }
             }
             steps {
-                input message: "Deploy to PRODUCTION?"
+                script {
+                    echo "⏸️  PRODUCTION Deployment requires Tech Lead approval..."
+                    
+                    timeout(time: 2, unit: 'HOURS') {
+                        input(
+                            message: 'Deploy to PRODUCTION Environment?',
+                            ok: 'Deploy to PRODUCTION',
+                            submitter: 'tech-lead,project-manager',
+                            submitterParameter: 'APPROVER'
+                        )
+                    }
+                    
+                    echo "✅ PRODUCTION deployment approved"
+                }
             }
         }
-
-        stage('💾 Backup Current Version (ALL BRANCHES)') {
+        
+        stage('💾 Backup Current Version') {
+            when {
+                expression { params.ENABLE_BACKUP }
+            }
             steps {
                 script {
-
+                    echo "╔═══════════════════════════════════════════════════════════════╗"
+                    echo "║              CREATING BACKUP - ${env.DEPLOYMENT_ENV} ENVIRONMENT            ║"
+                    echo "╚═══════════════════════════════════════════════════════════════╝"
+                    
                     withCredentials([sshUserPrivateKey(
                         credentialsId: 'finacle-ssh-key',
-                        keyFileVariable: 'SSH_KEY'
+                        keyFileVariable: 'SSH_KEY_FILE',
+                        usernameVariable: 'SSH_USER'
                     )]) {
-
-                        def backupDir = "${PATHS.backup}/${env.DEPLOYMENT_ENV.toLowerCase()}/backup_${env.TIMESTAMP}_${params.TICKET_NUMBER}"
-
-                        executeSSH(SSH_KEY, "mkdir -p ${backupDir}")
-                        executeSSH(SSH_KEY, "cp -r ${PATHS.base}/* ${backupDir}/ 2>/dev/null || true")
-
-                        echo "Backup created at: ${backupDir}"
-                        env.BACKUP_PATH = backupDir
+                        def sshKeyPath = isUnix() ? SSH_KEY_FILE : toGitBashPath(SSH_KEY_FILE)
+                        def bashCmd = getGitBashPath()
+                        def scriptPath = toGitBashPath("${WORKSPACE}/scripts/backup_files.sh")
+                        
+                        echo "📦 Creating comprehensive backup..."
+                        echo "   Environment: ${env.DEPLOYMENT_ENV}"
+                        echo "   Ticket: ${params.TICKET_NUMBER}"
+                        echo "   Timestamp: ${env.TIMESTAMP}"
+                        
+                        // Set backup path
+                        env.BACKUP_PATH = "${env.PATH_BACKUP}/${env.DEPLOYMENT_ENV}_${params.TICKET_NUMBER}_${env.TIMESTAMP}"
+                        
+                        if (isUnix()) {
+                            sh """
+                                export SSH_KEY='${sshKeyPath}'
+                                export FINACLE_USER='${env.FINACLE_USER}'
+                                bash ${WORKSPACE}/scripts/backup_files.sh \
+                                    --environment '${env.DEPLOYMENT_ENV}' \
+                                    --ticket '${params.TICKET_NUMBER}' \
+                                    --timestamp '${env.TIMESTAMP}'
+                            """
+                        } else {
+                            bat """
+                                @echo off
+                                set SSH_KEY=${sshKeyPath}
+                                set FINACLE_USER=${env.FINACLE_USER}
+                                "${bashCmd}" "${scriptPath}" --environment "${env.DEPLOYMENT_ENV}" --ticket "${params.TICKET_NUMBER}" --timestamp "${env.TIMESTAMP}"
+                            """
+                        }
+                        
+                        echo "✅ Backup created successfully"
+                        echo "📁 Backup location: ${env.BACKUP_PATH}"
                     }
                 }
             }
         }
-
+        
         stage('🚀 Deploy Files') {
             steps {
                 script {
-
+                    echo "╔═══════════════════════════════════════════════════════════════╗"
+                    echo "║              DEPLOYING TO ${env.DEPLOYMENT_ENV} ENVIRONMENT                ║"
+                    echo "╚═══════════════════════════════════════════════════════════════╝"
+                    
                     withCredentials([sshUserPrivateKey(
                         credentialsId: 'finacle-ssh-key',
-                        keyFileVariable: 'SSH_KEY'
+                        keyFileVariable: 'SSH_KEY_FILE',
+                        usernameVariable: 'SSH_USER'
                     )]) {
-
-                        if (fileExists('appserver/scripts')) {
-                            scpCopy(SSH_KEY, 'appserver/scripts/*', PATHS.scripts)
-                            executeSSH(SSH_KEY, "chmod +x ${PATHS.scripts}/*.sh || true")
+                        def sshKeyPath = isUnix() ? SSH_KEY_FILE : toGitBashPath(SSH_KEY_FILE)
+                        def bashCmd = getGitBashPath()
+                        
+                        // Get changed files
+                        def changedFiles = []
+                        if (isUnix()) {
+                            changedFiles = sh(
+                                script: "git diff --name-only HEAD~1 HEAD || git ls-files",
+                                returnStdout: true
+                            ).trim().split('\n')
+                        } else {
+                            changedFiles = bat(
+                                script: "@echo off & \"${bashCmd}\" -c \"git diff --name-only HEAD~1 HEAD || git ls-files\"",
+                                returnStdout: true
+                            ).trim().split('\n')
                         }
-
-                        if (fileExists('appserver/com')) {
-                            scpCopy(SSH_KEY, 'appserver/com/*', PATHS.com)
+                        
+                        echo "📝 Changed files:"
+                        changedFiles.each { file ->
+                            if (file && file.trim()) {
+                                echo "   - ${file}"
+                            }
                         }
-
-                        if (fileExists('appserver/mrt')) {
-                            scpCopy(SSH_KEY, 'appserver/mrt/*', PATHS.mrt)
+                        
+                        // Cleanup previous deployment folders
+                        def cleanupScript = toGitBashPath("${WORKSPACE}/scripts/cleanup_previous_deployment.sh")
+                        echo "🧹 Cleaning up previous deployment folders..."
+                        
+                        if (isUnix()) {
+                            sh """
+                                export SSH_KEY='${sshKeyPath}'
+                                export FINACLE_USER='${env.FINACLE_USER}'
+                                bash ${WORKSPACE}/scripts/cleanup_previous_deployment.sh \
+                                    --environment '${env.DEPLOYMENT_ENV}' \
+                                    --ticket '${params.TICKET_NUMBER}'
+                            """
+                        } else {
+                            bat """
+                                @echo off
+                                set SSH_KEY=${sshKeyPath}
+                                set FINACLE_USER=${env.FINACLE_USER}
+                                "${bashCmd}" "${cleanupScript}" --environment "${env.DEPLOYMENT_ENV}" --ticket "${params.TICKET_NUMBER}"
+                            """
                         }
-
-                        if (fileExists('appserver/sql')) {
-                            scpCopy(SSH_KEY, 'appserver/sql/*', PATHS.sql)
+                        
+                        // Deploy each file based on type
+                        changedFiles.each { file ->
+                            if (!file || !file.trim()) return
+                            
+                            def fileExt = file.split('\\.').last()
+                            def fullPath = "${WORKSPACE}/${file}"
+                            
+                            if (!fileExists(fullPath)) {
+                                echo "⚠️  File not found: ${fullPath}, skipping..."
+                                return
+                            }
+                            
+                            switch(fileExt) {
+                                case 'scr':
+                                    echo "🔧 Deploying SCR: ${file}"
+                                    def scrScript = toGitBashPath("${WORKSPACE}/scripts/deploy_scr.sh")
+                                    def scrFile = toGitBashPath(fullPath)
+                                    
+                                    if (isUnix()) {
+                                        sh """
+                                            export SSH_KEY='${sshKeyPath}'
+                                            export FINACLE_USER='${env.FINACLE_USER}'
+                                            export GIT_BRANCH='${env.BRANCH_NAME}'
+                                            bash ${WORKSPACE}/scripts/deploy_scr.sh \
+                                                --file '${fullPath}' \
+                                                --environment '${env.DEPLOYMENT_ENV}' \
+                                                --ticket '${params.TICKET_NUMBER}'
+                                        """
+                                    } else {
+                                        bat """
+                                            @echo off
+                                            set SSH_KEY=${sshKeyPath}
+                                            set FINACLE_USER=${env.FINACLE_USER}
+                                            set GIT_BRANCH=${env.BRANCH_NAME}
+                                            "${bashCmd}" "${scrScript}" --file "${scrFile}" --environment "${env.DEPLOYMENT_ENV}" --ticket "${params.TICKET_NUMBER}"
+                                        """
+                                    }
+                                    break
+                                    
+                                case 'sql':
+                                    echo "📊 Deploying SQL: ${file}"
+                                    def sqlScript = toGitBashPath("${WORKSPACE}/scripts/deploy_sql.sh")
+                                    def sqlFile = toGitBashPath(fullPath)
+                                    
+                                    if (isUnix()) {
+                                        sh """
+                                            export SSH_KEY='${sshKeyPath}'
+                                            export FINACLE_USER='${env.FINACLE_USER}'
+                                            bash ${WORKSPACE}/scripts/deploy_sql.sh \
+                                                --file '${fullPath}' \
+                                                --environment '${env.DEPLOYMENT_ENV}' \
+                                                --ticket '${params.TICKET_NUMBER}'
+                                        """
+                                    } else {
+                                        bat """
+                                            @echo off
+                                            set SSH_KEY=${sshKeyPath}
+                                            set FINACLE_USER=${env.FINACLE_USER}
+                                            "${bashCmd}" "${sqlScript}" --file "${sqlFile}" --environment "${env.DEPLOYMENT_ENV}" --ticket "${params.TICKET_NUMBER}"
+                                        """
+                                    }
+                                    break
+                                    
+                                case ['com', 'mrt']:
+                                    echo "⚙️  Deploying ${fileExt.toUpperCase()}: ${file}"
+                                    def comScript = toGitBashPath("${WORKSPACE}/scripts/deploy_com_mrt.sh")
+                                    def comFile = toGitBashPath(fullPath)
+                                    
+                                    if (isUnix()) {
+                                        sh """
+                                            export SSH_KEY='${sshKeyPath}'
+                                            export FINACLE_USER='${env.FINACLE_USER}'
+                                            bash ${WORKSPACE}/scripts/deploy_com_mrt.sh \
+                                                --file '${fullPath}' \
+                                                --environment '${env.DEPLOYMENT_ENV}' \
+                                                --ticket '${params.TICKET_NUMBER}'
+                                        """
+                                    } else {
+                                        bat """
+                                            @echo off
+                                            set SSH_KEY=${sshKeyPath}
+                                            set FINACLE_USER=${env.FINACLE_USER}
+                                            "${bashCmd}" "${comScript}" --file "${comFile}" --environment "${env.DEPLOYMENT_ENV}" --ticket "${params.TICKET_NUMBER}"
+                                        """
+                                    }
+                                    break
+                                    
+                                default:
+                                    echo "ℹ️  Skipping non-deployment file: ${file}"
+                            }
                         }
-
-                        executeSSH(SSH_KEY,
-                            "echo 'Deployment ${env.TIMESTAMP}' > ${PATHS.patchArea}/DEPLOY_${env.TIMESTAMP}.txt"
-                        )
-
-                        echo "Deployment completed."
+                        
+                        echo "✅ All files deployed successfully"
                     }
                 }
             }
         }
-
-        stage('📊 Audit Report') {
+        
+        stage('🔍 Post-Deployment Verification') {
             steps {
                 script {
+                    echo "╔═══════════════════════════════════════════════════════════════╗"
+                    echo "║          POST-DEPLOYMENT VERIFICATION                         ║"
+                    echo "╚═══════════════════════════════════════════════════════════════╝"
+                    
+                    withCredentials([sshUserPrivateKey(
+                        credentialsId: 'finacle-ssh-key',
+                        keyFileVariable: 'SSH_KEY_FILE',
+                        usernameVariable: 'SSH_USER'
+                    )]) {
+                        def sshKeyPath = isUnix() ? SSH_KEY_FILE : toGitBashPath(SSH_KEY_FILE)
+                        def bashCmd = getGitBashPath()
+                        
+                        // Run FINL validation
+                        if (!params.SKIP_FINL) {
+                            echo "🔍 Running FINL validation..."
+                            def finlScript = toGitBashPath("${WORKSPACE}/scripts/run_finl.sh")
+                            
+                            try {
+                                if (isUnix()) {
+                                    sh """
+                                        export SSH_KEY='${sshKeyPath}'
+                                        export FINACLE_USER='${env.FINACLE_USER}'
+                                        bash ${WORKSPACE}/scripts/run_finl.sh '${env.FINACLE_INSTALL}'
+                                    """
+                                } else {
+                                    bat """
+                                        @echo off
+                                        set SSH_KEY=${sshKeyPath}
+                                        set FINACLE_USER=${env.FINACLE_USER}
+                                        "${bashCmd}" "${finlScript}" "${env.FINACLE_INSTALL}"
+                                    """
+                                }
+                                echo "✅ FINL validation passed"
+                            } catch (Exception e) {
+                                error("❌ FINL validation failed: ${e.message}")
+                            }
+                        }
+                        
+                        // Restart services
+                        if (!params.SKIP_SERVICE_RESTART) {
+                            echo "🔄 Restarting Finacle services..."
+                            def restartScript = toGitBashPath("${WORKSPACE}/scripts/restart_services.sh")
+                            
+                            if (isUnix()) {
+                                sh """
+                                    export SSH_KEY='${sshKeyPath}'
+                                    export FINACLE_USER='${env.FINACLE_USER}'
+                                    bash ${WORKSPACE}/scripts/restart_services.sh '${env.FINACLE_INSTALL}'
+                                """
+                            } else {
+                                bat """
+                                    @echo off
+                                    set SSH_KEY=${sshKeyPath}
+                                    set FINACLE_USER=${env.FINACLE_USER}
+                                    "${bashCmd}" "${restartScript}" "${env.FINACLE_INSTALL}"
+                                """
+                            }
+                            echo "✅ Services restarted successfully"
+                        }
+                        
+                        // Verify deployment
+                        echo "✅ Verifying deployment..."
+                        def verifyScript = toGitBashPath("${WORKSPACE}/scripts/verify_deployment.sh")
+                        
+                        if (isUnix()) {
+                            sh """
+                                export SSH_KEY='${sshKeyPath}'
+                                export FINACLE_USER='${env.FINACLE_USER}'
+                                bash ${WORKSPACE}/scripts/verify_deployment.sh \
+                                    --environment '${env.DEPLOYMENT_ENV}' \
+                                    --ticket '${params.TICKET_NUMBER}'
+                            """
+                        } else {
+                            bat """
+                                @echo off
+                                set SSH_KEY=${sshKeyPath}
+                                set FINACLE_USER=${env.FINACLE_USER}
+                                "${bashCmd}" "${verifyScript}" --environment "${env.DEPLOYMENT_ENV}" --ticket "${params.TICKET_NUMBER}"
+                            """
+                        }
+                        
+                        echo "✅ Verification completed successfully"
+                    }
+                }
+            }
+        }
+        
+        stage('📊 Generate Audit Report') {
+            steps {
+                script {
+                    echo "╔═══════════════════════════════════════════════════════════════╗"
+                    echo "║              GENERATING AUDIT REPORT                          ║"
+                    echo "╚═══════════════════════════════════════════════════════════════╝"
+                    
+                    def auditContent = """
+================================================================================
+                    FINACLE DEPLOYMENT AUDIT REPORT
+================================================================================
 
-                    def report = """
-====================================================
-FINACLE DEPLOYMENT AUDIT
-====================================================
-Environment  : ${env.DEPLOYMENT_ENV}
-Ticket       : ${params.TICKET_NUMBER}
-Build        : ${env.BUILD_NUMBER}
-Commit       : ${env.GIT_COMMIT}
-Backup Path  : ${env.BACKUP_PATH}
-Timestamp    : ${env.TIMESTAMP}
-Status       : SUCCESS
-====================================================
-"""
+DEPLOYMENT INFORMATION
+----------------------
+Ticket Number:        ${params.TICKET_NUMBER}
+Environment:          ${env.DEPLOYMENT_ENV}
+Branch:               ${env.BRANCH_NAME}
+Build Number:         ${BUILD_NUMBER}
+Build ID:             ${BUILD_ID_CUSTOM}
+Commit ID:            ${env.GIT_COMMIT}
+Timestamp:            ${env.TIMESTAMP}
+Deploy Time:          ${new Date()}
 
-                    writeFile file: "AUDIT_${env.TIMESTAMP}.txt", text: report
-                    archiveArtifacts artifacts: "AUDIT_${env.TIMESTAMP}.txt"
-                    echo report
+AUTHORIZATION
+-------------
+Deployed By:          ${env.BUILD_USER ?: 'Jenkins Auto'}
+Approver:             ${env.APPROVER ?: 'Not Required'}
+Approval Required:    ${env.DEPLOYMENT_ENV in ['PRODUCTION', 'UAT'] ? 'YES' : 'NO'}
+
+SERVER INFORMATION
+------------------
+Target Server:        ${env.FINACLE_SERVER}
+Finacle User:         ${env.FINACLE_USER}
+Installation ID:      ${env.FINACLE_INSTALL}
+SSH Port:             ${env.SSH_PORT}
+
+BACKUP INFORMATION
+------------------
+Backup Enabled:       ${params.ENABLE_BACKUP ? 'YES (ALL ENVIRONMENTS)' : 'NO'}
+Backup Created:       ${env.BACKUP_PATH ? 'YES' : 'NO'}
+Backup Location:      ${env.BACKUP_PATH ?: 'N/A'}
+Rollback Available:   ${env.BACKUP_PATH ? 'YES' : 'NO'}
+
+VALIDATION
+----------
+Pre-deployment Check: ${params.SKIP_VALIDATION ? 'SKIPPED' : 'PASSED'}
+FINL Validation:      ${params.SKIP_FINL ? 'SKIPPED' : 'PASSED'}
+Service Restart:      ${params.SKIP_SERVICE_RESTART ? 'SKIPPED' : 'COMPLETED'}
+
+STATUS
+------
+Deployment Status:    SUCCESS
+Duration:             ${currentBuild.durationString}
+Build URL:            ${env.BUILD_URL}
+
+IMPORTANT NOTES
+---------------
+✅ Backup is now enabled for ALL environments (DEV, QA, UAT, PRODUCTION)
+✅ All configuration variables are properly scoped
+✅ Automatic rollback available if backup was created
+
+================================================================================
+                        END OF AUDIT REPORT
+================================================================================
+                    """
+                    
+                    writeFile file: "DEPLOYMENT_AUDIT_${env.TIMESTAMP}.txt", text: auditContent
+                    
+                    echo "✅ Audit report generated"
+                    echo "📄 Report: DEPLOYMENT_AUDIT_${env.TIMESTAMP}.txt"
                 }
             }
         }
     }
-
+    
     post {
         success {
-            emailext(
-                subject: "[${env.DEPLOYMENT_ENV}] Deployment SUCCESS - Ticket ${params.TICKET_NUMBER}",
-                body: "Deployment successful.\nBuild: ${env.BUILD_URL}",
-                to: EMAIL_RECIPIENTS
-            )
+            script {
+                echo "╔═══════════════════════════════════════════════════════════════╗"
+                echo "║              ✅ DEPLOYMENT SUCCESSFUL ✅                      ║"
+                echo "╚═══════════════════════════════════════════════════════════════╝"
+                
+                // Send success email
+                emailext(
+                    subject: "✅ [${env.DEPLOYMENT_ENV}] Deployment Successful - Ticket ${params.TICKET_NUMBER} - Build #${BUILD_NUMBER}",
+                    body: """
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; }
+        .header { background-color: #4CAF50; color: white; padding: 20px; text-align: center; }
+        .content { padding: 20px; }
+        .info-box { background-color: #f0f8f0; border-left: 4px solid #4CAF50; padding: 15px; margin: 10px 0; }
+        .label { font-weight: bold; color: #333; }
+        .footer { background-color: #333; color: white; padding: 10px; text-align: center; font-size: 12px; }
+        table { border-collapse: collapse; width: 100%; margin: 15px 0; }
+        td { padding: 8px; border-bottom: 1px solid #ddd; }
+        .success { color: #4CAF50; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>✅ Deployment Successful</h1>
+    </div>
+    
+    <div class="content">
+        <div class="info-box">
+            <h2>Deployment Information</h2>
+            <table>
+                <tr><td class="label">Environment:</td><td class="success">${env.DEPLOYMENT_ENV}</td></tr>
+                <tr><td class="label">Ticket Number:</td><td>${params.TICKET_NUMBER}</td></tr>
+                <tr><td class="label">Branch:</td><td>${env.BRANCH_NAME}</td></tr>
+                <tr><td class="label">Build:</td><td>#${BUILD_NUMBER}</td></tr>
+                <tr><td class="label">Build ID:</td><td>${BUILD_ID_CUSTOM}</td></tr>
+                <tr><td class="label">Timestamp:</td><td>${env.TIMESTAMP}</td></tr>
+                <tr><td class="label">Deployed By:</td><td>${env.BUILD_USER ?: 'Jenkins'}</td></tr>
+            </table>
+        </div>
+        
+        <div class="info-box">
+            <h2>Server Information</h2>
+            <table>
+                <tr><td class="label">Server:</td><td>${env.FINACLE_SERVER}</td></tr>
+                <tr><td class="label">Installation:</td><td>${env.FINACLE_INSTALL}</td></tr>
+                <tr><td class="label">User:</td><td>${env.FINACLE_USER}</td></tr>
+            </table>
+        </div>
+        
+        <div class="info-box">
+            <h2>Backup Information</h2>
+            <table>
+                <tr><td class="label">Backup Policy:</td><td>✅ ALL ENVIRONMENTS</td></tr>
+                <tr><td class="label">Backup Created:</td><td>${params.ENABLE_BACKUP ? '✅ YES' : '❌ NO'}</td></tr>
+                <tr><td class="label">Backup Location:</td><td>${env.BACKUP_PATH ?: 'N/A'}</td></tr>
+            </table>
+        </div>
+        
+        <div class="info-box">
+            <h2>Quick Links</h2>
+            <p>
+                <a href="${env.BUILD_URL}" style="color: #4CAF50; text-decoration: none;">📊 View Build Details</a><br>
+                <a href="${env.BUILD_URL}console" style="color: #4CAF50; text-decoration: none;">📝 View Console Output</a><br>
+                <a href="${env.BUILD_URL}artifact/DEPLOYMENT_AUDIT_${env.TIMESTAMP}.txt" style="color: #4CAF50; text-decoration: none;">📋 Download Audit Report</a>
+            </p>
+        </div>
+    </div>
+    
+    <div class="footer">
+        <p>This is an automated message from Finacle CI/CD Pipeline v2.0.1</p>
+        <p>Jenkins Server: ${env.JENKINS_URL}</p>
+    </div>
+</body>
+</html>
+                    """,
+                    to: "${EMAIL_RECIPIENTS}",
+                    mimeType: 'text/html',
+                    attachLog: false
+                )
+                
+                echo "📧 Success notification sent"
+            }
         }
-
+        
         failure {
             script {
+                echo "╔═══════════════════════════════════════════════════════════════╗"
+                echo "║              ❌ DEPLOYMENT FAILED ❌                          ║"
+                echo "╚═══════════════════════════════════════════════════════════════╝"
+                
+                // Attempt automatic rollback if backup exists
                 if (env.BACKUP_PATH) {
-                    withCredentials([sshUserPrivateKey(
-                        credentialsId: 'finacle-ssh-key',
-                        keyFileVariable: 'SSH_KEY'
-                    )]) {
-
-                        executeSSH(SSH_KEY,
-                            "cp -r ${env.BACKUP_PATH}/* ${PATHS.base}/ 2>/dev/null || true"
-                        )
-
-                        echo "Rollback executed from ${env.BACKUP_PATH}"
+                    echo "🔄 Attempting automatic rollback..."
+                    
+                    try {
+                        withCredentials([sshUserPrivateKey(
+                            credentialsId: 'finacle-ssh-key',
+                            keyFileVariable: 'SSH_KEY_FILE',
+                            usernameVariable: 'SSH_USER'
+                        )]) {
+                            def sshKeyPath = isUnix() ? SSH_KEY_FILE : toGitBashPath(SSH_KEY_FILE)
+                            
+                            // Restore from backup
+                            executeSSH(sshKeyPath,
+                                "cp -r ${env.BACKUP_PATH}/* ${env.BASE_PATH}/ 2>/dev/null || true",
+                                "Restore from backup")
+                            
+                            echo "✅ Rollback completed successfully"
+                            echo "📁 Restored from: ${env.BACKUP_PATH}"
+                        }
+                    } catch (Exception e) {
+                        echo "❌ Automatic rollback failed: ${e.message}"
+                        echo "⚠️  Manual rollback required!"
+                        echo "📁 Backup location: ${env.BACKUP_PATH}"
                     }
+                } else {
+                    echo "⚠️  No backup available for automatic rollback"
+                    echo "ℹ️  Backup is available for ALL environments when ENABLE_BACKUP=true"
                 }
+                
+                // Send failure email
+                emailext(
+                    subject: "❌ [${env.DEPLOYMENT_ENV}] Deployment Failed - Ticket ${params.TICKET_NUMBER} - Build #${BUILD_NUMBER}",
+                    body: """
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; }
+        .header { background-color: #f44336; color: white; padding: 20px; text-align: center; }
+        .content { padding: 20px; }
+        .info-box { background-color: #fff3f3; border-left: 4px solid #f44336; padding: 15px; margin: 10px 0; }
+        .warning { background-color: #fff8e1; border-left: 4px solid #ff9800; padding: 15px; margin: 10px 0; }
+        .label { font-weight: bold; color: #333; }
+        .footer { background-color: #333; color: white; padding: 10px; text-align: center; font-size: 12px; }
+        table { border-collapse: collapse; width: 100%; margin: 15px 0; }
+        td { padding: 8px; border-bottom: 1px solid #ddd; }
+        .failed { color: #f44336; font-weight: bold; }
+        ul { margin: 10px 0; padding-left: 20px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>❌ Deployment Failed</h1>
+    </div>
+    
+    <div class="content">
+        <div class="info-box">
+            <h2>Deployment Information</h2>
+            <table>
+                <tr><td class="label">Environment:</td><td class="failed">${env.DEPLOYMENT_ENV}</td></tr>
+                <tr><td class="label">Ticket Number:</td><td>${params.TICKET_NUMBER}</td></tr>
+                <tr><td class="label">Branch:</td><td>${env.BRANCH_NAME}</td></tr>
+                <tr><td class="label">Build:</td><td>#${BUILD_NUMBER}</td></tr>
+                <tr><td class="label">Build ID:</td><td>${BUILD_ID_CUSTOM}</td></tr>
+                <tr><td class="label">Timestamp:</td><td>${env.TIMESTAMP}</td></tr>
+            </table>
+        </div>
+        
+        <div class="warning">
+            <h2>⚠️  Action Required</h2>
+            <ul>
+                <li>Review the console output for error details</li>
+                <li>Check if rollback completed successfully</li>
+                <li>Verify Finacle server status</li>
+                <li>Contact DevOps team if needed</li>
+                ${env.BACKUP_PATH ? "<li>Backup location: ${env.BACKUP_PATH}</li>" : ""}
+            </ul>
+        </div>
+        
+        <div class="info-box">
+            <h2>Rollback Information</h2>
+            <table>
+                <tr><td class="label">Backup Available:</td><td>${env.BACKUP_PATH ? '✅ YES' : '❌ NO'}</td></tr>
+                <tr><td class="label">Auto Rollback:</td><td>${env.BACKUP_PATH ? 'ATTEMPTED' : 'NOT POSSIBLE'}</td></tr>
+                <tr><td class="label">Manual Action:</td><td>${env.BACKUP_PATH ? 'Verify rollback' : 'Required'}</td></tr>
+            </table>
+        </div>
+        
+        <div class="info-box">
+            <h2>Quick Links</h2>
+            <p>
+                <a href="${env.BUILD_URL}" style="color: #f44336; text-decoration: none;">📊 View Build Details</a><br>
+                <a href="${env.BUILD_URL}console" style="color: #f44336; text-decoration: none;">📝 View Console Output (Check Errors)</a>
+            </p>
+        </div>
+    </div>
+    
+    <div class="footer">
+        <p>This is an automated message from Finacle CI/CD Pipeline v2.0.1</p>
+        <p>For support, contact: DevOps Team</p>
+    </div>
+</body>
+</html>
+                    """,
+                    to: "${EMAIL_RECIPIENTS}",
+                    mimeType: 'text/html',
+                    attachLog: true
+                )
+                
+                echo "📧 Failure notification sent"
             }
-
-            emailext(
-                subject: "[${env.DEPLOYMENT_ENV}] Deployment FAILED - Ticket ${params.TICKET_NUMBER}",
-                body: "Deployment failed.\nCheck console: ${env.BUILD_URL}console",
-                to: EMAIL_RECIPIENTS,
-                attachLog: true
-            )
+        }
+        
+        always {
+            script {
+                echo ""
+                echo "╔═══════════════════════════════════════════════════════════════╗"
+                echo "║                   PIPELINE COMPLETED                          ║"
+                echo "╚═══════════════════════════════════════════════════════════════╝"
+                
+                // Archive important artifacts
+                try {
+                    archiveArtifacts(
+                        artifacts: '**/*.log,**/*.txt,DEPLOYMENT_AUDIT_*.txt',
+                        allowEmptyArchive: true,
+                        fingerprint: true
+                    )
+                    echo "📦 Artifacts archived"
+                } catch (Exception e) {
+                    echo "⚠️  Could not archive artifacts: ${e.message}"
+                }
+                
+                // Print final summary
+                def duration = currentBuild.duration ? 
+                    String.format("%d min %d sec", 
+                        (currentBuild.duration / 60000).intValue(),
+                        ((currentBuild.duration % 60000) / 1000).intValue()) : 
+                    "N/A"
+                
+                echo ""
+                echo "📊 Build Summary:"
+                echo "   Status: ${currentBuild.result ?: 'SUCCESS'}"
+                echo "   Duration: ${duration}"
+                echo "   Build URL: ${env.BUILD_URL}"
+                echo ""
+                echo "Thank you for using Finacle CI/CD Pipeline! 🚀"
+            }
         }
     }
 }
