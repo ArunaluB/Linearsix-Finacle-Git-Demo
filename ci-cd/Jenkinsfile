@@ -232,13 +232,6 @@ pipeline {
         PATH_LOGS = '/var/log/finacle-deployments'
         PATH_FINLISTVAL = '/finservices/FIN/DEM/finlistval/bin'
         PATH_CORESESSION = '/finservices/FIN/DEM/coresession/bin'
-        
-        // Build Information
-        TIMESTAMP = sh(script: "date '+%Y%m%d_%H%M%S'", returnStdout: true).trim()
-        BUILD_ID_CUSTOM = "${BUILD_NUMBER}_${TIMESTAMP}"
-        
-        // Email configuration
-        EMAIL_RECIPIENTS = credentials('finacle-deployment-email')
     }
     
     options {
@@ -258,6 +251,14 @@ pipeline {
                     echo "╚═══════════════════════════════════════════════════════════════╝"
                     echo ""
                     
+                    // Generate timestamp and build ID
+                    if (isUnix()) {
+                        env.TIMESTAMP = sh(script: "date '+%Y%m%d_%H%M%S'", returnStdout: true).trim()
+                    } else {
+                        env.TIMESTAMP = bat(script: "@echo off & echo %date:~-4%%date:~3,2%%date:~0,2%_%time:~0,2%%time:~3,2%%time:~6,2%", returnStdout: true).trim().replaceAll(' ', '0')
+                    }
+                    env.BUILD_ID_CUSTOM = "${BUILD_NUMBER}_${env.TIMESTAMP}"
+                    
                     // Determine environment from branch
                     env.BRANCH_NAME = env.GIT_BRANCH ?: 'dev'
                     env.DEPLOYMENT_ENV = getBranchEnvironment(env.BRANCH_NAME)
@@ -267,7 +268,7 @@ pipeline {
                     echo "   Environment: ${env.DEPLOYMENT_ENV}"
                     echo "   Ticket: ${params.TICKET_NUMBER}"
                     echo "   Build: ${BUILD_NUMBER}"
-                    echo "   Build ID: ${BUILD_ID_CUSTOM}"
+                    echo "   Build ID: ${env.BUILD_ID_CUSTOM}"
                     echo "   Commit: ${env.GIT_COMMIT}"
                     echo "   Workspace: ${WORKSPACE}"
                     echo "   Git Bash: ${getGitBashPath()}"
@@ -711,9 +712,9 @@ Ticket Number:        ${params.TICKET_NUMBER}
 Environment:          ${env.DEPLOYMENT_ENV}
 Branch:               ${env.BRANCH_NAME}
 Build Number:         ${BUILD_NUMBER}
-Build ID:             ${BUILD_ID_CUSTOM}
+Build ID:             ${env.BUILD_ID_CUSTOM ?: 'N/A'}
 Commit ID:            ${env.GIT_COMMIT}
-Timestamp:            ${env.TIMESTAMP}
+Timestamp:            ${env.TIMESTAMP ?: 'N/A'}
 Deploy Time:          ${new Date()}
 
 AUTHORIZATION
@@ -775,10 +776,19 @@ IMPORTANT NOTES
                 echo "║              ✅ DEPLOYMENT SUCCESSFUL ✅                      ║"
                 echo "╚═══════════════════════════════════════════════════════════════╝"
                 
-                // Send success email
-                emailext(
-                    subject: "✅ [${env.DEPLOYMENT_ENV}] Deployment Successful - Ticket ${params.TICKET_NUMBER} - Build #${BUILD_NUMBER}",
-                    body: """
+                // Send success email (if credentials exist)
+                try {
+                    def emailRecipients = ''
+                    try {
+                        emailRecipients = credentials('finacle-deployment-email')
+                    } catch (Exception e) {
+                        echo "⚠️  Email credential 'finacle-deployment-email' not found - skipping email notification"
+                        return
+                    }
+                    
+                    emailext(
+                        subject: "✅ [${env.DEPLOYMENT_ENV}] Deployment Successful - Ticket ${params.TICKET_NUMBER} - Build #${BUILD_NUMBER}",
+                        body: """
 <!DOCTYPE html>
 <html>
 <head>
@@ -807,8 +817,8 @@ IMPORTANT NOTES
                 <tr><td class="label">Ticket Number:</td><td>${params.TICKET_NUMBER}</td></tr>
                 <tr><td class="label">Branch:</td><td>${env.BRANCH_NAME}</td></tr>
                 <tr><td class="label">Build:</td><td>#${BUILD_NUMBER}</td></tr>
-                <tr><td class="label">Build ID:</td><td>${BUILD_ID_CUSTOM}</td></tr>
-                <tr><td class="label">Timestamp:</td><td>${env.TIMESTAMP}</td></tr>
+                <tr><td class="label">Build ID:</td><td>${env.BUILD_ID_CUSTOM ?: 'N/A'}</td></tr>
+                <tr><td class="label">Timestamp:</td><td>${env.TIMESTAMP ?: 'N/A'}</td></tr>
                 <tr><td class="label">Deployed By:</td><td>${env.BUILD_USER ?: 'Jenkins'}</td></tr>
             </table>
         </div>
@@ -848,12 +858,15 @@ IMPORTANT NOTES
 </body>
 </html>
                     """,
-                    to: "${EMAIL_RECIPIENTS}",
+                    to: emailRecipients,
                     mimeType: 'text/html',
                     attachLog: false
                 )
                 
                 echo "📧 Success notification sent"
+            } catch (Exception e) {
+                echo "⚠️  Failed to send email notification: ${e.message}"
+            }
             }
         }
         
@@ -893,10 +906,19 @@ IMPORTANT NOTES
                     echo "ℹ️  Backup is available for ALL environments when ENABLE_BACKUP=true"
                 }
                 
-                // Send failure email
-                emailext(
-                    subject: "❌ [${env.DEPLOYMENT_ENV}] Deployment Failed - Ticket ${params.TICKET_NUMBER} - Build #${BUILD_NUMBER}",
-                    body: """
+                // Send failure email (if credentials exist)
+                try {
+                    def emailRecipients = ''
+                    try {
+                        emailRecipients = credentials('finacle-deployment-email')
+                    } catch (Exception e) {
+                        echo "⚠️  Email credential 'finacle-deployment-email' not found - skipping email notification"
+                        return
+                    }
+                    
+                    emailext(
+                        subject: "❌ [${env.DEPLOYMENT_ENV}] Deployment Failed - Ticket ${params.TICKET_NUMBER} - Build #${BUILD_NUMBER}",
+                        body: """
 <!DOCTYPE html>
 <html>
 <head>
@@ -927,8 +949,8 @@ IMPORTANT NOTES
                 <tr><td class="label">Ticket Number:</td><td>${params.TICKET_NUMBER}</td></tr>
                 <tr><td class="label">Branch:</td><td>${env.BRANCH_NAME}</td></tr>
                 <tr><td class="label">Build:</td><td>#${BUILD_NUMBER}</td></tr>
-                <tr><td class="label">Build ID:</td><td>${BUILD_ID_CUSTOM}</td></tr>
-                <tr><td class="label">Timestamp:</td><td>${env.TIMESTAMP}</td></tr>
+                <tr><td class="label">Build ID:</td><td>${env.BUILD_ID_CUSTOM ?: 'N/A'}</td></tr>
+                <tr><td class="label">Timestamp:</td><td>${env.TIMESTAMP ?: 'N/A'}</td></tr>
             </table>
         </div>
         
@@ -968,12 +990,15 @@ IMPORTANT NOTES
 </body>
 </html>
                     """,
-                    to: "${EMAIL_RECIPIENTS}",
+                    to: emailRecipients,
                     mimeType: 'text/html',
                     attachLog: true
                 )
                 
                 echo "📧 Failure notification sent"
+            } catch (Exception e) {
+                echo "⚠️  Failed to send email notification: ${e.message}"
+            }
             }
         }
         
