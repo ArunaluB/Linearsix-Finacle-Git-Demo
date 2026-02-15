@@ -228,8 +228,8 @@ pipeline {
         PATH_PATCH_BASE = "/finutils/customizations_${params.TICKET_NUMBER}/Localizations"
         PATH_PATCH_AREA = "/finutils/customizations_${params.TICKET_NUMBER}/Localizations/patchArea"
         PATH_FINAL_DELIVERY = "/finutils/customizations_${params.TICKET_NUMBER}/Localizations/FinalDelivery"
-        PATH_BACKUP = "/finapp/backup"
-        PATH_LOGS = '/var/log/finacle-deployments'
+        PATH_BACKUP = "/finutils/customizations_${params.TICKET_NUMBER}/Localizations/FinalDelivery"
+        PATH_LOGS = '/finutils/customizations_${params.TICKET_NUMBER}/Localizations/FinalDelivery'
         PATH_FINLISTVAL = '/finservices/FIN/DEM/finlistval/bin'
         PATH_CORESESSION = '/finservices/FIN/DEM/coresession/bin'
     }
