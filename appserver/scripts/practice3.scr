@@ -1,0 +1,33 @@
+<--start
+
+trace on
+
+if (repexists("CUSTS") == 0) then
+    createrep("CUSTS")
+endif
+
+if (classexists("CUSTS", "CLAOPDSS") == 0) then
+    createclass("CUSTS", "CLAOPDSS", 5)
+endif
+
+lv_r = urhk_b2k_printRepos("BANCS")
+print(lv_r)
+
+CUSTS.CLAOPDSS.acctnumber = BANCS.INPUT.acctnumber
+print(CUSTS.CLAOPDSS.acctnumber)
+
+#-- Prepare SQL DELETE query string --#
+sv_a = "delete from custom.CUST_TEST_NOMINEEDTL_TBL "
+sv_a = sv_a + "where account_no = '" + CUSTS.CLAOPDSS.acctnumber + "'"
+
+print(sv_a)
+
+#-- Execute the DELETE query --#
+sv_b = urhk_dbSqlWithBind(sv_a)
+print(sv_b)
+
+# -- Set output parameters (Optional) -- #
+sv_u = urhk_setOrbout("Deleted_acctnumber |" + CUSTS.CLAOPDSS.acctnumber)
+
+trace off
+end-->

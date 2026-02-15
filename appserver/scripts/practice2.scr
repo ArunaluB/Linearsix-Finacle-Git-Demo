@@ -1,0 +1,62 @@
+<--start
+trace on
+
+if (repexists("CUSTS") == 0) then
+       createrep("CUSTS")
+endif
+
+if (classexists("CUSTS", "CLAOPDSS") == 0) then
+       createclass("CUSTS", "CLAOPDSS", 5)
+endif
+
+lv_r = urhk_b2k_printRepos("BANCS")
+print(lv_r)
+
+CUSTS.CLAOPDSS.acctnumber = ""
+CUSTS.CLAOPDSS.acctnumber = cdouble(BANCS.INPUT.acctnumber)
+
+CUSTS.CLAOPDSS.nominee_name = ""
+CUSTS.CLAOPDSS.nominee_name = BANCS.INPUT.nominee_name
+
+CUSTS.CLAOPDSS.nominee_id = ""
+CUSTS.CLAOPDSS.nominee_id = BANCS.INPUT.nominee_id
+
+CUSTS.CLAOPDSS.nominee_address = ""
+CUSTS.CLAOPDSS.nominee_address = BANCS.INPUT.nominee_address
+
+CUSTS.CLAOPDSS.nominee_contact_num = ""
+CUSTS.CLAOPDSS.nominee_contact_num = BANCS.INPUT.nominee_contact_num
+
+sv_a = "acctnumber1,nominee_name1,nominee_id1,nominee_address1,nominee_contact_num1 |"
+
+sv_a = sv_a + " select acctnumber1,nominee_name1,nominee_id1,nominee_address1,nominee_contact_num1 from 
+                custom.CUST_TEST_NOMINEEDTL_TBL where 
+                acctnumber1='"CUSTS.CLAOPDSS.acctnumber+"'"
+				
+print(sv_a)
+
+sv_b = urhk_dbselectWithBind(sv_a)
+print(sv_a)
+
+if (sv_b == 0) then
+    CUSTS.CLAOPDSS.acctnumber = BANCS.OUTPARAM.acctnumber1
+	CUSTS.CLAOPDSS.nominee_name = BANCS.OUTPARAM.nominee_name1
+	CUSTS.CLAOPDSS.nominee_id = BANCS.OUTPARAM.nominee_id1
+	CUSTS.CLAOPDSS.nominee_address = BANCS.OUTPARAM.nominee_address1
+	CUSTS.CLAOPDSS.nominee_contact_num = BANCS.OUTPARAM.nominee_contact_num1
+else
+    CUSTS.CLAOPDSS.acctnumber = ""
+	CUSTS.CLAOPDSS.nominee_name = ""
+	CUSTS.CLAOPDSS.nominee_id = ""
+	CUSTS.CLAOPDSS.nominee_address = ""
+	CUSTS.CLAOPDSS.nominee_contact_num = ""
+
+
+sv_u = urhk_setOrbout("acctnumber |" +CUSTS.CLAOPDSS.acctnumber )
+sv_u = urhk_setOrbout("nominee_name |" +CUSTS.CLAOPDSS.nominee_name )
+sv_u = urhk_setOrbout("nominee_id |" +CUSTS.CLAOPDSS.nominee_id )
+sv_u = urhk_setOrbout("nominee_address |" +CUSTS.CLAOPDSS.nominee_address )
+sv_u = urhk_setOrbout("nominee_contact_num |" +CUSTS.CLAOPDSS.nominee_contact_num )
+
+trace off
+end-->

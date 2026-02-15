@@ -1,0 +1,36 @@
+@"
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Temporary
+*.tmp
+.temp/
+tmp/
+
+# Sensitive
+*.key
+*.pem
+*.password
+config/secrets.yml
+config/credentials.yml
+
+# Backup files
+*_safe_*
+*.bak
+*.backup
+
+# Build artifacts
+*.class
+target/
+build/
+"@ | Out-File -FilePath ".gitignore" -Encoding UTF8

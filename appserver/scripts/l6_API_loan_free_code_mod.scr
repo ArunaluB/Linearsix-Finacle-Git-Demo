@@ -1,0 +1,918 @@
+<--start
+trace on
+    IF (REPEXISTS("LIN") == 0) THEN
+	#{
+		CREATEREP("LIN")
+	#}
+	ENDIF
+	IF (CLASSEXISTS("LIN", "DATA") == 0) THEN
+	#{
+		CREATECLASS("LIN", "DATA", 5)
+	#}
+	ENDIF
+    #free_code_1 = "123"
+
+    #free_code_1 = "1"      BANCS.INPUT.free_code_1="1"
+
+    #free_code_1 = "123"    BANCS.INPUT.free_code_1 not be passed or leave empty ""
+
+    #free_code_1 = ""       BANCS.INPUT.free_code_1="BLANK"
+
+
+    LIN.DATA.isError = "N"
+	LIN.DATA.errMsg = ""
+	
+    LIN.DATA.free_text_1 = "NA"
+    LIN.DATA.free_text_2 = "NA"
+    LIN.DATA.free_text_3 = "NA"
+    LIN.DATA.free_text_4 = "NA"
+    LIN.DATA.free_text_5 = "NA"
+    LIN.DATA.free_text_6 = "NA"
+    LIN.DATA.free_text_7 = "NA"
+    LIN.DATA.free_text_8 = "NA"
+    LIN.DATA.free_text_9 = "NA"
+    LIN.DATA.free_text_10 = "NA"
+    LIN.DATA.free_text_11 = "NA"
+    LIN.DATA.free_text_12 = "NA"
+    LIN.DATA.free_text_13 = "NA"
+    LIN.DATA.free_text_14 = "NA"
+    LIN.DATA.free_text_15 = "NA"
+    LIN.DATA.free_text_16 = "NA"
+    LIN.DATA.free_text_17 = "NA"
+    LIN.DATA.free_text_18 = "NA"
+    LIN.DATA.free_text_19 = "NA"
+    LIN.DATA.free_text_20 = "NA" 
+	LIN.DATA.free_text_21 = "NA" 
+	LIN.DATA.free_text_22 = "NA"
+	LIN.DATA.free_text_23 = "NA"
+	LIN.DATA.free_text_24 = "NA"
+	LIN.DATA.free_text_25 = "NA"
+	
+    LIN.DATA.free_code_1 = "NA"
+    LIN.DATA.free_code_2 = "NA"
+    LIN.DATA.free_code_3 = "NA"
+    LIN.DATA.free_code_4 = "NA"
+    LIN.DATA.free_code_5 = "NA"
+    LIN.DATA.free_code_6 = "NA"
+    LIN.DATA.free_code_7 = "NA"
+    LIN.DATA.free_code_8 = "NA"
+    LIN.DATA.free_code_9 = "NA"
+    LIN.DATA.free_code_10 ="NA"
+    
+    if (fieldexists(BANCS.INPUT.foracid)) then
+    #{
+        LIN.DATA.foracid = BANCS.INPUT.foracid
+    #}
+    ELSE
+    #{
+        LIN.DATA.isError="Y"
+        LIN.DATA.errMsg="account number is mandatory"
+        GOTO ENDOFSCRIPT
+    #}
+    ENDIF
+
+    if (fieldexists(BANCS.INPUT.free_text_1)) then
+    #{
+        if(BANCS.INPUT.free_text_1=="BLANK") THEN
+        #{
+            LIN.DATA.free_text_1 = ""
+        #}
+        ELSE
+        #{
+            LIN.DATA.free_text_1 = BANCS.INPUT.free_text_1
+        #}
+        ENDIF
+    #}
+    ENDIF   
+	
+	if (fieldexists(BANCS.INPUT.free_text_2)) then
+    #{
+        if(BANCS.INPUT.free_text_2=="BLANK") THEN
+        #{
+            LIN.DATA.free_text_2 = ""
+        #}
+        ELSE
+        #{
+            LIN.DATA.free_text_2 = BANCS.INPUT.free_text_2
+        #}
+        ENDIF
+    #}
+    ENDIF 	
+	
+	if (fieldexists(BANCS.INPUT.free_text_3)) then
+    #{
+        if(BANCS.INPUT.free_text_3=="BLANK") THEN
+        #{
+            LIN.DATA.free_text_3 = ""
+        #}
+        ELSE
+        #{
+            LIN.DATA.free_text_3 = BANCS.INPUT.free_text_3
+        #}
+        ENDIF
+    #}
+    ENDIF 	
+	
+	if (fieldexists(BANCS.INPUT.free_text_4)) then
+    #{
+        if(BANCS.INPUT.free_text_4=="BLANK") THEN
+        #{
+            LIN.DATA.free_text_4 = ""
+        #}
+        ELSE
+        #{
+            LIN.DATA.free_text_4 = BANCS.INPUT.free_text_4
+        #}
+        ENDIF
+    #}
+    ENDIF 
+	
+	if (fieldexists(BANCS.INPUT.free_text_5)) then
+    #{
+        if(BANCS.INPUT.free_text_5=="BLANK") THEN
+        #{
+            LIN.DATA.free_text_5 = ""
+        #}
+        ELSE
+        #{
+            LIN.DATA.free_text_5 = BANCS.INPUT.free_text_5
+        #}
+        ENDIF
+    #}
+    ENDIF 
+	
+	if (fieldexists(BANCS.INPUT.free_text_6)) then
+    #{
+        if(BANCS.INPUT.free_text_6=="BLANK") THEN
+        #{
+            LIN.DATA.free_text_6 = ""
+        #}
+        ELSE
+        #{
+            LIN.DATA.free_text_6 = BANCS.INPUT.free_text_6
+        #}
+        ENDIF
+    #}
+    ENDIF 
+	
+	if (fieldexists(BANCS.INPUT.free_text_7)) then
+    #{
+        if(BANCS.INPUT.free_text_7=="BLANK") THEN
+        #{
+            LIN.DATA.free_text_7 = ""
+        #}
+        ELSE
+        #{
+            LIN.DATA.free_text_7 = BANCS.INPUT.free_text_7
+        #}
+        ENDIF
+    #}
+    ENDIF 	
+	
+	if (fieldexists(BANCS.INPUT.free_text_8)) then
+    #{
+        if(BANCS.INPUT.free_text_8=="BLANK") THEN
+        #{
+            LIN.DATA.free_text_8 = ""
+        #}
+        ELSE
+        #{
+            LIN.DATA.free_text_8 = BANCS.INPUT.free_text_8
+        #}
+        ENDIF
+    #}
+    ENDIF	
+	
+	if (fieldexists(BANCS.INPUT.free_text_9)) then
+    #{
+        if(BANCS.INPUT.free_text_9=="BLANK") THEN
+        #{
+            LIN.DATA.free_text_9 = ""
+        #}
+        ELSE
+        #{
+            LIN.DATA.free_text_9 = BANCS.INPUT.free_text_9
+        #}
+        ENDIF
+    #}
+    ENDIF 	
+	
+	if (fieldexists(BANCS.INPUT.free_text_10)) then
+    #{
+        if(BANCS.INPUT.free_text_10=="BLANK") THEN
+        #{
+            LIN.DATA.free_text_10 = ""
+        #}
+        ELSE
+        #{
+            LIN.DATA.free_text_10 = BANCS.INPUT.free_text_10
+        #}
+        ENDIF
+    #}
+    ENDIF   
+	if (fieldexists(BANCS.INPUT.free_text_11)) then
+    #{
+        if(BANCS.INPUT.free_text_11=="BLANK") THEN
+        #{
+            LIN.DATA.free_text_11 = ""
+        #}
+        ELSE
+        #{
+            LIN.DATA.free_text_11 = BANCS.INPUT.free_text_11
+        #}
+        ENDIF
+    #}
+    ENDIF   
+	if (fieldexists(BANCS.INPUT.free_text_12)) then
+    #{
+        if(BANCS.INPUT.free_text_12=="BLANK") THEN
+        #{
+            LIN.DATA.free_text_12 = ""
+        #}
+        ELSE
+        #{
+            LIN.DATA.free_text_12 = BANCS.INPUT.free_text_12
+        #}
+        ENDIF
+    #}
+    ENDIF   	
+	if (fieldexists(BANCS.INPUT.free_text_13)) then
+    #{
+        if(BANCS.INPUT.free_text_13=="BLANK") THEN
+        #{
+            LIN.DATA.free_text_13 = ""
+        #}
+        ELSE
+        #{
+            LIN.DATA.free_text_13 = BANCS.INPUT.free_text_13
+        #}
+        ENDIF
+    #}
+    ENDIF   
+	if (fieldexists(BANCS.INPUT.free_text_14)) then
+    #{
+        if(BANCS.INPUT.free_text_14=="BLANK") THEN
+        #{
+            LIN.DATA.free_text_14 = ""
+        #}
+        ELSE
+        #{
+            LIN.DATA.free_text_14 = BANCS.INPUT.free_text_14
+        #}
+        ENDIF
+    #}
+    ENDIF   	
+	
+	if (fieldexists(BANCS.INPUT.free_text_15)) then
+    #{
+        if(BANCS.INPUT.free_text_15=="BLANK") THEN
+        #{
+            LIN.DATA.free_text_15 = ""
+        #}
+        ELSE
+        #{
+            LIN.DATA.free_text_15 = BANCS.INPUT.free_text_15
+        #}
+        ENDIF
+    #}
+    ENDIF   
+
+    if (fieldexists(BANCS.INPUT.free_text_16)) then
+    #{
+        if(BANCS.INPUT.free_text_16=="BLANK") THEN
+        #{
+            LIN.DATA.free_text_16 = ""
+        #}
+        ELSE
+        #{
+            LIN.DATA.free_text_16 = BANCS.INPUT.free_text_16
+        #}
+        ENDIF
+    #}
+    ENDIF   
+
+    	if (fieldexists(BANCS.INPUT.free_text_17)) then
+    #{
+        if(BANCS.INPUT.free_text_17=="BLANK") THEN
+        #{
+            LIN.DATA.free_text_17 = ""
+        #}
+        ELSE
+        #{
+            LIN.DATA.free_text_17 = BANCS.INPUT.free_text_17
+        #}
+        ENDIF
+    #}
+    ENDIF   
+
+    if (fieldexists(BANCS.INPUT.free_text_18)) then
+    #{
+        if(BANCS.INPUT.free_text_18=="BLANK") THEN
+        #{
+            LIN.DATA.free_text_18 = ""
+        #}
+        ELSE
+        #{
+            LIN.DATA.free_text_18 = BANCS.INPUT.free_text_18
+        #}
+        ENDIF
+    #}
+    ENDIF   
+
+    if (fieldexists(BANCS.INPUT.free_text_19)) then
+    #{
+        if(BANCS.INPUT.free_text_19=="BLANK") THEN
+        #{
+            LIN.DATA.free_text_19 = ""
+        #}
+        ELSE
+        #{
+            LIN.DATA.free_text_19 = BANCS.INPUT.free_text_19
+        #}
+        ENDIF
+    #}
+    ENDIF   
+
+    if (fieldexists(BANCS.INPUT.free_text_20)) then
+    #{
+        if(BANCS.INPUT.free_text_20=="BLANK") THEN
+        #{
+            LIN.DATA.free_text_20 = ""
+        #}
+        ELSE
+        #{
+            LIN.DATA.free_text_20 = BANCS.INPUT.free_text_20
+        #}
+        ENDIF
+    #}
+    ENDIF   
+	
+	if (fieldexists(BANCS.INPUT.free_text_21)) then
+    #{
+        if(BANCS.INPUT.free_text_21=="BLANK") THEN
+        #{
+            LIN.DATA.free_text_21 = ""
+        #}
+        ELSE
+        #{
+            LIN.DATA.free_text_21 = BANCS.INPUT.free_text_21
+        #}
+        ENDIF
+    #}
+    ENDIF 
+	
+	if (fieldexists(BANCS.INPUT.free_text_22)) then
+    #{
+        if(BANCS.INPUT.free_text_22=="BLANK") THEN
+        #{
+            LIN.DATA.free_text_22 = ""
+        #}
+        ELSE
+        #{
+            LIN.DATA.free_text_22 = BANCS.INPUT.free_text_22
+        #}
+        ENDIF
+    #}
+    ENDIF 
+	
+	if (fieldexists(BANCS.INPUT.free_text_23)) then
+    #{
+        if(BANCS.INPUT.free_text_23=="BLANK") THEN
+        #{
+            LIN.DATA.free_text_23 = ""
+        #}
+        ELSE
+        #{
+            LIN.DATA.free_text_23 = BANCS.INPUT.free_text_23
+        #}
+        ENDIF
+    #}
+    ENDIF 
+	
+	if (fieldexists(BANCS.INPUT.free_text_24)) then
+    #{
+        if(BANCS.INPUT.free_text_24=="BLANK") THEN
+        #{
+            LIN.DATA.free_text_24 = ""
+        #}
+        ELSE
+        #{
+            LIN.DATA.free_text_24 = BANCS.INPUT.free_text_24
+        #}
+        ENDIF
+    #}
+    ENDIF 
+	
+	if (fieldexists(BANCS.INPUT.free_text_25)) then
+    #{
+        if(BANCS.INPUT.free_text_25=="BLANK") THEN
+        #{
+            LIN.DATA.free_text_25 = ""
+        #}
+        ELSE
+        #{
+            LIN.DATA.free_text_25 = BANCS.INPUT.free_text_25
+        #}
+        ENDIF
+    #}
+    ENDIF 
+
+      
+
+	if (fieldexists(BANCS.INPUT.free_code_1)) then
+    #{
+        if(BANCS.INPUT.free_code_1=="BLANK") THEN
+        #{
+            LIN.DATA.free_code_1 = ""
+        #}
+        ELSE
+        #{
+            LIN.DATA.free_code_1 = BANCS.INPUT.free_code_1
+        #}
+        ENDIF
+    #}
+    ENDIF	
+	
+	if (fieldexists(BANCS.INPUT.free_code_2)) then
+    #{
+        if(BANCS.INPUT.free_code_2=="BLANK") THEN
+        #{
+            LIN.DATA.free_code_2 = ""
+        #}
+        ELSE
+        #{
+            LIN.DATA.free_code_2 = BANCS.INPUT.free_code_2
+        #}
+        ENDIF
+    #}
+    ENDIF
+	
+	if (fieldexists(BANCS.INPUT.free_code_3)) then
+    #{
+        if(BANCS.INPUT.free_code_3=="BLANK") THEN
+        #{
+            LIN.DATA.free_code_3 = ""
+        #}
+        ELSE
+        #{
+            LIN.DATA.free_code_3 = BANCS.INPUT.free_code_3
+        #}
+        ENDIF
+    #}
+    ENDIF	
+	
+	if (fieldexists(BANCS.INPUT.free_code_4)) then
+    #{
+        if(BANCS.INPUT.free_code_4=="BLANK") THEN
+        #{
+            LIN.DATA.free_code_4 = ""
+        #}
+        ELSE
+        #{
+            LIN.DATA.free_code_4 = BANCS.INPUT.free_code_4
+        #}
+        ENDIF
+    #}
+    ENDIF	
+	
+	if (fieldexists(BANCS.INPUT.free_code_5)) then
+    #{
+        if(BANCS.INPUT.free_code_5=="BLANK") THEN
+        #{
+            LIN.DATA.free_code_5 = ""
+        #}
+        ELSE
+        #{
+            LIN.DATA.free_code_5 = BANCS.INPUT.free_code_5
+        #}
+        ENDIF
+    #}
+    ENDIF
+	
+	if (fieldexists(BANCS.INPUT.free_code_6)) then
+    #{
+        if(BANCS.INPUT.free_code_6=="BLANK") THEN
+        #{
+            LIN.DATA.free_code_6 = ""
+        #}
+        ELSE
+        #{
+            LIN.DATA.free_code_6 = BANCS.INPUT.free_code_6
+        #}
+        ENDIF
+    #}
+    ENDIF
+	
+	if (fieldexists(BANCS.INPUT.free_code_7)) then
+    #{
+        if(BANCS.INPUT.free_code_7=="BLANK") THEN
+        #{
+            LIN.DATA.free_code_7 = ""
+        #}
+        ELSE
+        #{
+            LIN.DATA.free_code_7 = BANCS.INPUT.free_code_7
+        #}
+        ENDIF
+    #}
+    ENDIF	
+	
+	if (fieldexists(BANCS.INPUT.free_code_8)) then
+    #{
+        if(BANCS.INPUT.free_code_8=="BLANK") THEN
+        #{
+            LIN.DATA.free_code_8 = ""
+        #}
+        ELSE
+        #{
+            LIN.DATA.free_code_8 = BANCS.INPUT.free_code_8
+        #}
+        ENDIF
+    #}
+    ENDIF
+	
+	if (fieldexists(BANCS.INPUT.free_code_9)) then
+    #{
+        if(BANCS.INPUT.free_code_9=="BLANK") THEN
+        #{
+            LIN.DATA.free_code_9 = ""
+        #}
+        ELSE
+        #{
+            LIN.DATA.free_code_9 = BANCS.INPUT.free_code_9
+        #}
+        ENDIF
+    #}
+    ENDIF
+	
+	if (fieldexists(BANCS.INPUT.free_code_10)) then
+    #{
+        if(BANCS.INPUT.free_code_10=="BLANK") THEN
+        #{
+            LIN.DATA.free_code_10 = ""
+        #}
+        ELSE
+        #{
+            LIN.DATA.free_code_10 = BANCS.INPUT.free_code_10
+        #}
+        ENDIF
+    #}
+    ENDIF
+
+    if (fieldexists(BANCS.INPUT.USERID)) then
+    #{
+        LIN.DATA.userid = BANCS.INPUT.USERID
+    #}
+    ELSE
+    #{
+        LIN.DATA.userid = ""
+    #}
+    ENDIF
+    #--------------------------Get existing Record Count--------------------------#
+
+    LIN.DATA.gacCount = "0"
+
+    sv_s = "gacCount|"
+    sv_s = sv_s + " select count(*) from tbaadm.gac where acid = ("
+    sv_s = sv_s + " select acid from tbaadm.gam where foracid ='" +LIN.DATA.foracid +"')"
+    print(sv_s)
+    sv_r = urhk_dbSelectWithBind(sv_s)
+    print(sv_r)
+    if(sv_r == 0) then
+    #{
+        LIN.DATA.gacCount = BANCS.OUTPARAM.gacCount
+    #}
+    ELSE
+    #{
+        LIN.DATA.isError="Y"
+        LIN.DATA.errMsg="Invalid account number."
+        GOTO ENDOFSCRIPT
+    #}
+    ENDIF
+
+    IF(cint(LIN.DATA.gacCount)>0)THEN
+    #{
+        sv_s = "update tbaadm.gac set acid = acid "
+    
+        if (LIN.DATA.free_text_1 != "NA")then
+            sv_s = sv_s + " , free_text_1 = '" + LIN.DATA.free_text_1 + "' "
+        endif  
+    
+        if (LIN.DATA.free_text_2 != "NA")then
+            sv_s = sv_s + " , free_text_2 = '" + LIN.DATA.free_text_2 + "' "
+        endif  
+    
+        if (LIN.DATA.free_text_3 != "NA")then
+            sv_s = sv_s + " , free_text_3 = '" + LIN.DATA.free_text_3 + "' "
+        endif  
+    
+        if (LIN.DATA.free_text_4 != "NA")then
+            sv_s = sv_s + " , free_text_4 = '" + LIN.DATA.free_text_4 + "' "
+        endif  
+    
+        if (LIN.DATA.free_text_5 != "NA")then
+            sv_s = sv_s + " , free_text_5 = '" + LIN.DATA.free_text_5 + "' "
+        endif  
+    
+        if (LIN.DATA.free_text_6 != "NA")then
+            sv_s = sv_s + " , free_text_6 = '" + LIN.DATA.free_text_6 + "' "
+        endif  
+    
+        if (LIN.DATA.free_text_7 != "NA")then
+            sv_s = sv_s + " , free_text_7 = '" + LIN.DATA.free_text_7 + "' "
+        endif  
+    
+        if (LIN.DATA.free_text_8 != "NA")then
+            sv_s = sv_s + " , free_text_8 = '" + LIN.DATA.free_text_8 + "' "
+        endif  
+    
+        if (LIN.DATA.free_text_9 != "NA")then
+            sv_s = sv_s + " , free_text_9 = '" + LIN.DATA.free_text_9 + "' "
+        endif  
+    
+        if (LIN.DATA.free_text_10 != "NA")then
+            sv_s = sv_s + " , free_text_10 = '" + LIN.DATA.free_text_10 + "' "
+        endif  
+        if (LIN.DATA.free_text_11 != "NA")then
+            sv_s = sv_s + " , free_text_11 = '" + LIN.DATA.free_text_11 + "' "
+        endif  
+        if (LIN.DATA.free_text_12 != "NA")then
+             sv_s = sv_s + " , free_text_12 = '" + LIN.DATA.free_text_12 + "' "
+         endif  
+        if (LIN.DATA.free_text_13 != "NA")then
+             sv_s = sv_s + " , free_text_13 = '" + LIN.DATA.free_text_13 + "' "
+         endif  
+        if (LIN.DATA.free_text_14 != "NA")then
+             sv_s = sv_s + " , free_text_14 = '" + LIN.DATA.free_text_14 + "' "
+         endif  
+        if (LIN.DATA.free_text_15 != "NA")then
+            sv_s = sv_s + " , free_text_15 = '" + LIN.DATA.free_text_15 + "' "
+        endif  
+
+        if (LIN.DATA.free_text_16 != "NA")then
+            sv_s = sv_s + " , free_text_16 = '" + LIN.DATA.free_text_16 + "' "
+        endif 
+
+        if (LIN.DATA.free_text_17 != "NA")then
+            sv_s = sv_s + " , free_text_17 = '" + LIN.DATA.free_text_17 + "' "
+        endif  
+
+        if (LIN.DATA.free_text_18 != "NA")then
+            sv_s = sv_s + " , free_text_18 = '" + LIN.DATA.free_text_18 + "' "
+        endif  
+
+        if (LIN.DATA.free_text_19 != "NA")then
+            sv_s = sv_s + " , free_text_19 = '" + LIN.DATA.free_text_19 + "' "
+        endif   
+
+        if (LIN.DATA.free_text_20 != "NA")then
+            sv_s = sv_s + " , free_text_20 = '" + LIN.DATA.free_text_20 + "' "
+        endif  
+		
+		if (LIN.DATA.free_text_21 != "NA")then
+            sv_s = sv_s + " , free_text_21 = '" + LIN.DATA.free_text_21 + "' "
+        endif
+		
+		if (LIN.DATA.free_text_22 != "NA")then
+            sv_s = sv_s + " , free_text_22 = '" + LIN.DATA.free_text_22 + "' "
+        endif  
+		
+		if (LIN.DATA.free_text_23 != "NA")then
+            sv_s = sv_s + " , free_text_23 = '" + LIN.DATA.free_text_23 + "' "
+        endif  
+		
+		if (LIN.DATA.free_text_24 != "NA")then
+            sv_s = sv_s + " , free_text_24 = '" + LIN.DATA.free_text_24 + "' "
+        endif  
+		
+		if (LIN.DATA.free_text_25 != "NA")then
+            sv_s = sv_s + " , free_text_25 = '" + LIN.DATA.free_text_25 + "' "
+        endif  
+
+			
+
+
+    
+	    if (LIN.DATA.free_code_1 != "NA")then
+            sv_s = sv_s + " , free_code_1 = '" + LIN.DATA.free_code_1 + "' "
+        endif
+    
+	    if (LIN.DATA.free_code_2 != "NA")then
+            sv_s = sv_s + " , free_code_2 = '" + LIN.DATA.free_code_2 + "' "
+        endif
+    
+	    if (LIN.DATA.free_code_3 != "NA")then
+            sv_s = sv_s + " , free_code_3 = '" + LIN.DATA.free_code_3 + "' "
+        endif
+    
+	    if (LIN.DATA.free_code_4 != "NA")then
+            sv_s = sv_s + " , free_code_4 = '" + LIN.DATA.free_code_4 + "' "
+        endif
+    
+	    if (LIN.DATA.free_code_5 != "NA")then
+            sv_s = sv_s + " , free_code_5 = '" + LIN.DATA.free_code_5 + "' "
+        endif
+    
+	    if (LIN.DATA.free_code_6 != "NA")then
+            sv_s = sv_s + " , free_code_6 = '" + LIN.DATA.free_code_6 + "' "
+        endif
+    
+	    if (LIN.DATA.free_code_7 != "NA")then
+            sv_s = sv_s + " , free_code_7 = '" + LIN.DATA.free_code_7 + "' "
+        endif
+    
+	    if (LIN.DATA.free_code_8 != "NA")then
+            sv_s = sv_s + " , free_code_8 = '" + LIN.DATA.free_code_8 + "' "
+        endif
+    
+	    if (LIN.DATA.free_code_9 != "NA")then
+            sv_s = sv_s + " , free_code_9 = '" + LIN.DATA.free_code_9 + "' "
+        endif
+    
+	    if (LIN.DATA.free_code_10 != "NA")then
+            sv_s = sv_s + " , free_code_10 = '" + LIN.DATA.free_code_10 + "' "
+        endif
+    
+        sv_s = sv_s + " where acid=(select acid from tbaadm.gam where foracid='" + LIN.DATA.foracid + "')"
+    
+	    print(sv_s)
+	    sv_r = urhk_dbSQLWithBind(sv_s)
+	    print(sv_r)
+
+        IF(sv_r!="0")THEN
+        #{
+            LIN.DATA.isError="Y"
+            LIN.DATA.errMsg="Updation for gac table failed."
+            GOTO ENDOFSCRIPT
+        #}
+        ENDIF
+    #}
+    ELSE
+    #{
+        LIN.DATA.acid = ""
+
+        sv_s = "acid|"
+        sv_s = sv_s + " select acid from tbaadm.gam where foracid ='" +LIN.DATA.foracid +"'"
+        print(sv_s)
+        sv_r = urhk_dbSelectWithBind(sv_s)
+        print(sv_r)
+        if(sv_r == 0) then
+        #{
+            LIN.DATA.acid = BANCS.OUTPARAM.acid
+        #}
+        ELSE
+        #{
+            LIN.DATA.isError="Y"
+            LIN.DATA.errMsg="Invalid account number."
+            GOTO ENDOFSCRIPT
+        #}
+        ENDIF
+
+        sv_s = ""
+		sv_s = sv_s + "insert into tbaadm.gac ( "
+		sv_s = sv_s + " acid,"
+		sv_s = sv_s + " free_code_1,"
+		sv_s = sv_s + " free_code_2,"
+		sv_s = sv_s + " free_code_3,"
+		sv_s = sv_s + " free_code_4,"
+		sv_s = sv_s + " free_code_5,"
+		sv_s = sv_s + " free_code_6,"
+		sv_s = sv_s + " free_code_7,"
+		sv_s = sv_s + " free_code_8,"
+		sv_s = sv_s + " free_code_9,"
+		sv_s = sv_s + " free_code_10,"
+		sv_s = sv_s + " free_text_1,"
+		sv_s = sv_s + " free_text_2,"
+		sv_s = sv_s + " free_text_3,"
+		sv_s = sv_s + " free_text_4,"
+		sv_s = sv_s + " free_text_5,"
+		sv_s = sv_s + " free_text_6,"
+		sv_s = sv_s + " free_text_7,"
+		sv_s = sv_s + " free_text_8,"
+		sv_s = sv_s + " free_text_9,"
+		sv_s = sv_s + " free_text_10,"
+		sv_s = sv_s + " free_text_11,"
+		sv_s = sv_s + " free_text_12,"
+		sv_s = sv_s + " free_text_13,"
+		sv_s = sv_s + " free_text_14,"
+		sv_s = sv_s + " free_text_15,"
+		sv_s = sv_s + " free_text_16,"
+		sv_s = sv_s + " free_text_17,"
+		sv_s = sv_s + " free_text_18,"
+		sv_s = sv_s + " free_text_19,"
+		sv_s = sv_s + " free_text_20,"
+		sv_s = sv_s + " free_text_21,"
+		sv_s = sv_s + " free_text_22,"
+		sv_s = sv_s + " free_text_23,"
+		sv_s = sv_s + " free_text_24,"
+		sv_s = sv_s + " free_text_25"
+		sv_s = sv_s + " )values( "
+		sv_s = sv_s + "'"+LIN.DATA.acid+"',"
+		sv_s = sv_s + "'"+LIN.DATA.free_code_1+"',"
+		sv_s = sv_s + "'"+LIN.DATA.free_code_2+"',"
+		sv_s = sv_s + "'"+LIN.DATA.free_code_3+"',"
+		sv_s = sv_s + "'"+LIN.DATA.free_code_4+"',"
+		sv_s = sv_s + "'"+LIN.DATA.free_code_5+"',"
+		sv_s = sv_s + "'"+LIN.DATA.free_code_6+"',"
+		sv_s = sv_s + "'"+LIN.DATA.free_code_7+"',"
+		sv_s = sv_s + "'"+LIN.DATA.free_code_8+"',"
+		sv_s = sv_s + "'"+LIN.DATA.free_code_9+"',"
+		sv_s = sv_s + "'"+LIN.DATA.free_code_10+"',"
+		sv_s = sv_s + "'"+LIN.DATA.free_text_1+"',"
+		sv_s = sv_s + "'"+LIN.DATA.free_text_2+"',"
+		sv_s = sv_s + "'"+LIN.DATA.free_text_3+"',"
+		sv_s = sv_s + "'"+LIN.DATA.free_text_4+"',"
+		sv_s = sv_s + "'"+LIN.DATA.free_text_5+"',"
+		sv_s = sv_s + "'"+LIN.DATA.free_text_6+"',"
+		sv_s = sv_s + "'"+LIN.DATA.free_text_7+"',"
+		sv_s = sv_s + "'"+LIN.DATA.free_text_8+"',"
+		sv_s = sv_s + "'"+LIN.DATA.free_text_9+"',"
+		sv_s = sv_s + "'"+LIN.DATA.free_text_10+"',"
+		sv_s = sv_s + "'"+LIN.DATA.free_text_11+"',"
+		sv_s = sv_s + "'"+LIN.DATA.free_text_12+"',"
+		sv_s = sv_s + "'"+LIN.DATA.free_text_13+"',"
+		sv_s = sv_s + "'"+LIN.DATA.free_text_14+"',"
+		sv_s = sv_s + "'"+LIN.DATA.free_text_15+"',"
+		sv_s = sv_s + "'"+LIN.DATA.free_text_16+"',"
+		sv_s = sv_s + "'"+LIN.DATA.free_text_17+"',"
+		sv_s = sv_s + "'"+LIN.DATA.free_text_18+"',"
+		sv_s = sv_s + "'"+LIN.DATA.free_text_19+"',"
+		sv_s = sv_s + "'"+LIN.DATA.free_text_20+"',"
+		sv_s = sv_s + "'"+LIN.DATA.free_text_21+"',"
+		sv_s = sv_s + "'"+LIN.DATA.free_text_22+"',"
+		sv_s = sv_s + "'"+LIN.DATA.free_text_23+"',"
+		sv_s = sv_s + "'"+LIN.DATA.free_text_24+"',"
+		sv_s = sv_s + "'"+LIN.DATA.free_text_25+"'"
+		sv_s = sv_s + ")"
+		print(sv_s)
+
+		sv_b = urhk_dbSqlWithBind(sv_s)
+		print(sv_b)
+
+        IF(sv_b!="0")THEN
+        #{
+            LIN.DATA.isError="Y"
+            LIN.DATA.errMsg="Insertion for gac table failed."
+            GOTO ENDOFSCRIPT
+        #}
+        ENDIF
+    #}
+    ENDIF
+
+
+    ##sv_y = "oldro|"
+    ##sv_y = sv_y + "select free_code_10 from tbaadm.gac where acid = (select acid from tbaadm.gam where foracid = '" + LIN.DATA.foracid + "')"
+    ##print(sv_y)
+    ##sv_r = urhk_dbSelectWithBind(sv_y)
+    ##print(sv_r)
+	##
+    ##if (sv_r == 0) then
+    ###{
+    ##    LIN.DATA.old_ro_code = BANCS.OUTPARAM.oldro
+    ###}
+    ##ELSE
+    ###{
+    ##    LIN.DATA.old_ro_code = ""
+    ###}
+    ##ENDIF
+	##
+    ##sv_z = ""
+    ##sv_z = sv_z + "insert into custom.ro_code_change_audit ("
+    ##sv_z = sv_z + "id, foracid, old_ro_code, new_ro_code, chang_date, chang_by)"
+    ##sv_z = sv_z + " values ("
+    ##sv_z = sv_z + "custom.seq_ro_code_change_audit.NEXTVAL, "
+    ##sv_z = sv_z + "'" + LIN.DATA.foracid + "', "
+    ##sv_z = sv_z + "'" + LIN.DATA.old_ro_code + "', "
+    ##sv_z = sv_z + "'" + LIN.DATA.free_code_10 + "', "
+    ##sv_z = sv_z + "SYSDATE, "
+    ##sv_z = sv_z + "'" + LIN.DATA.userid + "')"
+    ##print(sv_z)
+	##
+    ##sv_r = urhk_dbSqlWithBind(sv_z)
+    ##print(sv_r)
+	##
+    ##if(sv_r != "0") then
+    ###{
+    ##    LIN.DATA.isError = "Y"
+    ##    LIN.DATA.errMsg = "Audit insert failed"
+    ##    GOTO ENDOFSCRIPT
+    ###}
+    ##ENDIF
+
+    ENDOFSCRIPT:
+        if(LIN.DATA.isError == "Y") then
+        #{
+            BANCS.OUTPUT.successOrFailure = "F"
+            sv_u = urhk_SetOrbOut("ErrorMessage|" + LIN.DATA.errMsg + " ")
+			sv_u = urhk_SetOrbOut("SuccessOrFailure|N")
+        #}
+        ELSE
+        #{
+            BANCS.OUTPUT.successOrFailure = "S"
+			sv_u = urhk_SetOrbOut("SuccessOrFailure|Y")
+        #}
+        ENDIF
+
+trace off
+
+end-->

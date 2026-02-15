@@ -1,0 +1,46 @@
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+.temp/
+tmp/
+
+# Sensitive data
+*.key
+*.pem
+config/secrets.yml
+credentials.yml
+
+# Build artifacts
+*.class
+*.jar
+*.war
+target/
+build/
+
+# Node modules (if any)
+node_modules/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+
+# Backup files
+*~
+*.bak
+*.backup

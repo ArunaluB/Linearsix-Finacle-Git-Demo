@@ -1,0 +1,38 @@
+<--start
+trace on
+
+if (repexists("CUSTM") == 0) then
+    createrep("CUSTM")
+endif
+
+if (classexists("CUSTM", "CLAOPDSM") == 0) then
+    createclass("CUSTM", "CLAOPDSM", 5)
+endif
+
+CUSTM.CLAOPDSM.numberone = BANCS.INPUT.Num1
+CUSTM.CLAOPDSM.numbertwo = BANCS.INPUT.Num2
+CUSTM.CLAOPDSM.funtions = BANCS.INPUT.Function
+
+print(CUSTM.CLAOPDSM.numberone)
+print(CUSTM.CLAOPDSM.numbertwo)
+print(CUSTM.CLAOPDSM.funtions)
+
+if (CUSTM.CLAOPDSM.funtions == "Add") then
+    CUSTM.CLAOPDSM.addvalue = cdouble(CUSTM.CLAOPDSM.numberone) + cdouble(CUSTM.CLAOPDSM.numbertwo)
+    sv_u = urhk_setOrbout("AddingValue|" + CUSTM.CLAOPDSM.addvalue)
+endif
+
+if (CUSTM.CLAOPDSM.funtions == "Sub") then
+    CUSTM.CLAOPDSM.subvalue =  cdouble(CUSTM.CLAOPDSM.numberone) - cdouble(CUSTM.CLAOPDSM.numbertwo)
+    sv_u = urhk_setOrbout("SubtractingValue|" + CUSTM.CLAOPDSM.subvalue)
+endif
+
+if (CUSTM.CLAOPDSM.funtions == "Mul") then
+    CUSTM.CLAOPDSM.mulvalue =  cdouble(CUSTM.CLAOPDSM.numberone) * cdouble(CUSTM.CLAOPDSM.numbertwo)
+    sv_u = urhk_setOrbout("MultiplyingValue|" + CUSTM.CLAOPDSM.mulvalue)
+endif
+
+sv_u = urhk_setOrbout("Thank you for using ...")
+
+trace off
+end-->
