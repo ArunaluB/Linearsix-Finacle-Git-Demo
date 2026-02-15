@@ -1,0 +1,740 @@
+#!/usr/bin/env groovy
+/*
+ * Enterprise Finacle CI/CD Pipeline
+ * Version: 1.0.4 (Fixed SSH + Path Issues)
+ * Supports: DEV, QA, UAT, PRODUCTION branches
+ * Organizations: Sampath Bank, AFC, Siyapatha Finance, PABC
+ */
+
+// Pipeline Configuration
+def REPO_URL = 'https://github.com/ArunaluB/Linearsix-Finacle-Git-Demo.git'
+def FINACLE_SERVER = 'findem.linear6.com'
+def FINACLE_USER = 'finadm'
+def BASE_PATH = '/finapp/FIN/DEM/BE/Finacle/FC/app/cust/01/INFENG'
+def PATCH_BASE = '/finutils/customizations'
+def FINAL_DELIVERY = '/finutils/customizations_10225/Localizations/FinalDelivery'
+def AUDIT_LOG_PATH = '/finutils/customizations_10225/Localizations/patchArea'
+
+// Get Git Bash path for Windows
+def getGitBashPath() {
+    def gitBashPaths = [
+        'C:\\Program Files\\Git\\bin\\bash.exe',
+        'C:\\Program Files (x86)\\Git\\bin\\bash.exe',
+        'C:\\Git\\bin\\bash.exe'
+    ]
+    
+    for (path in gitBashPaths) {
+        if (fileExists(path)) {
+            return path
+        }
+    }
+    return 'bash' // fallback
+}
+
+// Convert Windows path to Git Bash compatible path
+def toGitBashPath(windowsPath) {
+    if (!windowsPath) return windowsPath
+    
+    return windowsPath
+        .replaceAll('\\\\', '/')
+        .replaceAll('^([A-Za-z]):', { match -> "/${match[1].toLowerCase()}" })
+}
+
+pipeline {
+    agent any
+    
+    parameters {
+        choice(
+            name: 'DEPLOYMENT_MODE',
+            choices: ['JENKINS_AUTO', 'LOCAL_PC_MANUAL'],
+            description: 'Deployment Mode Selection'
+        )
+        string(
+            name: 'TICKET_NUMBER',
+            defaultValue: '',
+            description: 'Patch/Ticket Number (e.g., 10225)'
+        )
+        string(
+            name: 'FIN_INSTALL_ID',
+            defaultValue: 'FINDEM',
+            description: 'Finacle Installation ID'
+        )
+        booleanParam(
+            name: 'FORCE_ROLLBACK',
+            defaultValue: false,
+            description: 'Force rollback to previous version'
+        )
+    }
+    
+    environment {
+        BRANCH_NAME = "${env.GIT_BRANCH?.replaceAll('origin/', '')}"
+        DEPLOYMENT_ENV = "${getBranchEnvironment(env.GIT_BRANCH)}"
+        EMAIL_RECIPIENTS = credentials('finacle-email-list')
+        AUDIT_LOG_DIR = "${AUDIT_LOG_PATH}"
+        TIMESTAMP = "${new Date().format('yyyyMMdd_HHmmss')}"
+        GIT_BASH = "${getGitBashPath()}"
+    }
+    
+    options {
+        buildDiscarder(logRotator(numToKeepStr: '50'))
+        timeout(time: 2, unit: 'HOURS')
+        timestamps()
+        disableConcurrentBuilds()
+    }
+    
+    stages {
+        stage('Initialize') {
+            steps {
+                script {
+                    echo "=== FINACLE CI/CD PIPELINE INITIALIZATION ==="
+                    echo "Branch: ${BRANCH_NAME}"
+                    echo "Environment: ${DEPLOYMENT_ENV}"
+                    echo "Ticket: ${params.TICKET_NUMBER}"
+                    echo "Build: ${BUILD_NUMBER}"
+                    echo "Commit: ${GIT_COMMIT}"
+                    
+                    // Validate branch protection
+                    if (DEPLOYMENT_ENV in ['QA', 'UAT', 'PRODUCTION']) {
+                        if (!isApprovedForEnvironment(DEPLOYMENT_ENV)) {
+                            error("Branch ${BRANCH_NAME} requires approval for ${DEPLOYMENT_ENV}")
+                        }
+                    }
+                    
+                    // Initialize audit logging using SSH with credentials
+                    withCredentials([sshUserPrivateKey(
+                        credentialsId: 'finacle-ssh-key',
+                        keyFileVariable: 'SSH_KEY_FILE',
+                        usernameVariable: 'SSH_USER'
+                    )]) {
+                        def sshKeyPath = isUnix() ? SSH_KEY_FILE : toGitBashPath(SSH_KEY_FILE)
+                        
+                        if (isUnix()) {
+                            sh """
+                                ssh -i ${sshKeyPath} -o StrictHostKeyChecking=no ${SSH_USER}@${FINACLE_SERVER} \
+                                'mkdir -p ${AUDIT_LOG_DIR}'
+                            """
+                        } else {
+                            bat """
+                                "${GIT_BASH}" -c "ssh -i '${sshKeyPath}' -o StrictHostKeyChecking=no ${SSH_USER}@${FINACLE_SERVER} 'mkdir -p ${AUDIT_LOG_DIR}'"
+                            """
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('Pre-deployment Validation') {
+            steps {
+                script {
+                    echo "=== PRE-DEPLOYMENT VALIDATION ==="
+                    
+                    withCredentials([sshUserPrivateKey(
+                        credentialsId: 'finacle-ssh-key',
+                        keyFileVariable: 'SSH_KEY_FILE',
+                        usernameVariable: 'SSH_USER'
+                    )]) {
+                        def scriptPath = "${WORKSPACE}/ci-cd/scripts/cleanup_previous_deployment.sh"
+                        def sshKeyPath = isUnix() ? SSH_KEY_FILE : toGitBashPath(SSH_KEY_FILE)
+                        
+                        if (isUnix()) {
+                            sh """
+                                export SSH_KEY_FILE='${SSH_KEY_FILE}'
+                                export FINACLE_USER='${SSH_USER}'
+                                bash ${scriptPath} \
+                                    --environment ${DEPLOYMENT_ENV} \
+                                    --ticket ${params.TICKET_NUMBER}
+                            """
+                        } else {
+                            def gitBashScriptPath = toGitBashPath(scriptPath)
+                            bat """
+                                "${GIT_BASH}" -c "export SSH_KEY_FILE='${sshKeyPath}' && export FINACLE_USER='${SSH_USER}' && bash '${gitBashScriptPath}' --environment ${DEPLOYMENT_ENV} --ticket ${params.TICKET_NUMBER}"
+                            """
+                        }
+                    }
+                    
+                    // Validate file headers
+                    withCredentials([sshUserPrivateKey(
+                        credentialsId: 'finacle-ssh-key',
+                        keyFileVariable: 'SSH_KEY_FILE',
+                        usernameVariable: 'SSH_USER'
+                    )]) {
+                        def scriptPath = "${WORKSPACE}/ci-cd/scripts/validate_file_headers.sh"
+                        def appserverPath = "${WORKSPACE}/appserver"
+                        
+                        if (isUnix()) {
+                            sh """
+                                cd ${appserverPath}
+                                bash ${scriptPath}
+                            """
+                        } else {
+                            def gitBashScriptPath = toGitBashPath(scriptPath)
+                            def gitBashAppserverPath = toGitBashPath(appserverPath)
+                            bat """
+                                "${GIT_BASH}" -c "cd '${gitBashAppserverPath}' && bash '${gitBashScriptPath}'"
+                            """
+                        }
+                    }
+                    
+                    // Check for merge conflicts (QA branch)
+                    if (DEPLOYMENT_ENV == 'QA') {
+                        def conflicts = ''
+                        if (isUnix()) {
+                            conflicts = sh(
+                                script: "git diff --name-only --diff-filter=U",
+                                returnStdout: true
+                            ).trim()
+                        } else {
+                            conflicts = bat(
+                                script: "@git diff --name-only --diff-filter=U",
+                                returnStdout: true
+                            ).trim()
+                        }
+                        
+                        if (conflicts) {
+                            emailext(
+                                subject: "MERGE CONFLICT DETECTED - ${TICKET_NUMBER}",
+                                body: """
+                                    Merge Conflict in QA Branch
+                                    
+                                    Ticket: ${params.TICKET_NUMBER}
+                                    Branch: ${BRANCH_NAME}
+                                    Conflicts: ${conflicts}
+                                    Author: ${env.BUILD_USER}
+                                    
+                                    Please resolve conflicts before proceeding.
+                                """,
+                                to: "${EMAIL_RECIPIENTS}",
+                                attachLog: true
+                            )
+                            error("Merge conflicts detected. Deployment aborted.")
+                        }
+                    }
+                    
+                    // Extract changed files from appserver directory
+                    def changedFiles = ''
+                    if (isUnix()) {
+                        changedFiles = sh(
+                            script: "git diff --name-only HEAD~1 HEAD | grep '^appserver/' || true",
+                            returnStdout: true
+                        ).trim()
+                    } else {
+                        changedFiles = bat(
+                            script: "@git diff --name-only HEAD~1 HEAD | findstr /B \"appserver/\" || echo.",
+                            returnStdout: true
+                        ).trim()
+                    }
+                    
+                    echo "Changed Files in appserver/:\n${changedFiles}"
+                    env.CHANGED_FILES = changedFiles
+                }
+            }
+        }
+        
+        stage('Create Patch Structure') {
+            when {
+                expression { DEPLOYMENT_ENV in ['QA', 'UAT'] }
+            }
+            steps {
+                script {
+                    echo "=== CREATING PATCH STRUCTURE ==="
+                    
+                    withCredentials([sshUserPrivateKey(
+                        credentialsId: 'finacle-ssh-key',
+                        keyFileVariable: 'SSH_KEY_FILE',
+                        usernameVariable: 'SSH_USER'
+                    )]) {
+                        def scriptPath = "${WORKSPACE}/ci-cd/scripts/create_patch_structure.sh"
+                        def sshKeyPath = isUnix() ? SSH_KEY_FILE : toGitBashPath(SSH_KEY_FILE)
+                        
+                        if (isUnix()) {
+                            sh """
+                                export SSH_KEY_FILE='${SSH_KEY_FILE}'
+                                export FINACLE_USER='${SSH_USER}'
+                                bash ${scriptPath} \
+                                    --ticket ${params.TICKET_NUMBER} \
+                                    --install-id ${params.FIN_INSTALL_ID} \
+                                    --environment ${DEPLOYMENT_ENV}
+                            """
+                        } else {
+                            def gitBashScriptPath = toGitBashPath(scriptPath)
+                            bat """
+                                "${GIT_BASH}" -c "export SSH_KEY_FILE='${sshKeyPath}' && export FINACLE_USER='${SSH_USER}' && bash '${gitBashScriptPath}' --ticket ${params.TICKET_NUMBER} --install-id ${params.FIN_INSTALL_ID} --environment ${DEPLOYMENT_ENV}"
+                            """
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('Cleanup Developer Versions (QA Only)') {
+            when {
+                expression { DEPLOYMENT_ENV == 'QA' }
+            }
+            steps {
+                script {
+                    echo "=== CLEANING UP DEVELOPER VERSIONS IN QA ==="
+                    
+                    withCredentials([sshUserPrivateKey(
+                        credentialsId: 'finacle-ssh-key',
+                        keyFileVariable: 'SSH_KEY_FILE',
+                        usernameVariable: 'SSH_USER'
+                    )]) {
+                        def scriptPath = "${WORKSPACE}/ci-cd/scripts/cleanup_dev_versions_qa.sh"
+                        def sshKeyPath = isUnix() ? SSH_KEY_FILE : toGitBashPath(SSH_KEY_FILE)
+                        
+                        def fileTypes = ['scr', 'sql', 'com']
+                        
+                        for (fileType in fileTypes) {
+                            if (isUnix()) {
+                                sh """
+                                    export SSH_KEY_FILE='${SSH_KEY_FILE}'
+                                    export FINACLE_USER='${SSH_USER}'
+                                    bash ${scriptPath} --ticket ${params.TICKET_NUMBER} --type ${fileType}
+                                """
+                            } else {
+                                def gitBashScriptPath = toGitBashPath(scriptPath)
+                                bat """
+                                    "${GIT_BASH}" -c "export SSH_KEY_FILE='${sshKeyPath}' && export FINACLE_USER='${SSH_USER}' && bash '${gitBashScriptPath}' --ticket ${params.TICKET_NUMBER} --type ${fileType}"
+                                """
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('Approval Gate - QA') {
+            when {
+                expression { DEPLOYMENT_ENV == 'QA' }
+            }
+            steps {
+                script {
+                    def qaApproval = input(
+                        message: 'QA Deployment Approval Required',
+                        parameters: [
+                            string(name: 'APPROVER', description: 'Your Name'),
+                            text(name: 'COMMENTS', description: 'Approval Comments')
+                        ],
+                        submitter: 'qa-leads',
+                        submitterParameter: 'APPROVED_BY'
+                    )
+                    
+                    echo "QA Approved by: ${qaApproval.APPROVER}"
+                    env.QA_APPROVER = qaApproval.APPROVER
+                }
+            }
+        }
+        
+        stage('Approval Gate - UAT') {
+            when {
+                expression { DEPLOYMENT_ENV == 'UAT' }
+            }
+            steps {
+                script {
+                    def uatApproval = input(
+                        message: 'UAT Deployment Approval Required',
+                        parameters: [
+                            string(name: 'APPROVER', description: 'Your Name'),
+                            text(name: 'COMMENTS', description: 'Approval Comments')
+                        ],
+                        submitter: 'uat-leads',
+                        submitterParameter: 'APPROVED_BY'
+                    )
+                    
+                    echo "UAT Approved by: ${uatApproval.APPROVER}"
+                    env.UAT_APPROVER = uatApproval.APPROVER
+                }
+            }
+        }
+        
+        stage('Approval Gate - PRODUCTION') {
+            when {
+                expression { DEPLOYMENT_ENV == 'PRODUCTION' }
+            }
+            steps {
+                script {
+                    def prodApproval = input(
+                        message: 'PRODUCTION Deployment Approval Required - CRITICAL',
+                        parameters: [
+                            string(name: 'APPROVER', description: 'Your Name'),
+                            text(name: 'COMMENTS', description: 'Approval Comments'),
+                            booleanParam(name: 'CONFIRMED', defaultValue: false, description: 'I confirm this production deployment')
+                        ],
+                        submitter: 'prod-admins',
+                        submitterParameter: 'APPROVED_BY'
+                    )
+                    
+                    if (!prodApproval.CONFIRMED) {
+                        error("Production deployment not confirmed")
+                    }
+                    
+                    echo "PRODUCTION Approved by: ${prodApproval.APPROVER}"
+                    env.PROD_APPROVER = prodApproval.APPROVER
+                }
+            }
+        }
+        
+        stage('Backup Current Version') {
+            steps {
+                script {
+                    echo "=== BACKING UP CURRENT VERSION ==="
+                    
+                    withCredentials([sshUserPrivateKey(
+                        credentialsId: 'finacle-ssh-key',
+                        keyFileVariable: 'SSH_KEY_FILE',
+                        usernameVariable: 'SSH_USER'
+                    )]) {
+                        def sshKeyPath = isUnix() ? SSH_KEY_FILE : toGitBashPath(SSH_KEY_FILE)
+                        
+                        if (isUnix()) {
+                            sh """
+                                ssh -i '${sshKeyPath}' -o StrictHostKeyChecking=no ${SSH_USER}@${FINACLE_SERVER} \
+                                'bash /home/${SSH_USER}/scripts/backup_current_version.sh ${params.FIN_INSTALL_ID} ${TIMESTAMP}'
+                            """
+                        } else {
+                            bat """
+                                "${GIT_BASH}" -c "ssh -i '${sshKeyPath}' -o StrictHostKeyChecking=no ${SSH_USER}@${FINACLE_SERVER} 'bash /home/${SSH_USER}/scripts/backup_current_version.sh ${params.FIN_INSTALL_ID} ${TIMESTAMP}'"
+                            """
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('Deploy Files') {
+            steps {
+                script {
+                    echo "=== DEPLOYING FILES ==="
+                    
+                    def changedFilesList = env.CHANGED_FILES?.split('\n') ?: []
+                    
+                    withCredentials([sshUserPrivateKey(
+                        credentialsId: 'finacle-ssh-key',
+                        keyFileVariable: 'SSH_KEY_FILE',
+                        usernameVariable: 'SSH_USER'
+                    )]) {
+                        def sshKeyPath = isUnix() ? SSH_KEY_FILE : toGitBashPath(SSH_KEY_FILE)
+                        
+                        for (file in changedFilesList) {
+                            if (!file || file.trim().isEmpty()) continue
+                            
+                            def fileName = file.tokenize('/').last()
+                            def extension = fileName.tokenize('.').last()
+                            def fullPath = "${WORKSPACE}/${file}"
+                            
+                            echo "Processing: ${file} (type: ${extension})"
+                            
+                            def scriptPath = ""
+                            switch(extension) {
+                                case 'scr':
+                                    scriptPath = "${WORKSPACE}/ci-cd/scripts/deploy_scr.sh"
+                                    break
+                                case 'sql':
+                                    scriptPath = "${WORKSPACE}/ci-cd/scripts/deploy_sql.sh"
+                                    break
+                                case 'com':
+                                case 'mrt':
+                                    scriptPath = "${WORKSPACE}/ci-cd/scripts/deploy_com_mrt.sh"
+                                    break
+                                default:
+                                    echo "Skipping unsupported file type: ${extension}"
+                                    continue
+                            }
+                            
+                            if (isUnix()) {
+                                sh """
+                                    export SSH_KEY_FILE='${SSH_KEY_FILE}'
+                                    export FINACLE_USER='${SSH_USER}'
+                                    export GIT_BRANCH='${BRANCH_NAME}'
+                                    bash ${scriptPath} --file ${fullPath} --environment ${DEPLOYMENT_ENV} --ticket ${params.TICKET_NUMBER}
+                                """
+                            } else {
+                                def gitBashScriptPath = toGitBashPath(scriptPath)
+                                def gitBashFilePath = toGitBashPath(fullPath)
+                                bat """
+                                    "${GIT_BASH}" -c "export SSH_KEY_FILE='${sshKeyPath}' && export FINACLE_USER='${SSH_USER}' && export GIT_BRANCH='${BRANCH_NAME}' && bash '${gitBashScriptPath}' --file '${gitBashFilePath}' --environment ${DEPLOYMENT_ENV} --ticket ${params.TICKET_NUMBER}"
+                                """
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('FINL Validation') {
+            steps {
+                script {
+                    echo "=== RUNNING FINL VALIDATION ==="
+                    
+                    def finlResult = 0
+                    withCredentials([sshUserPrivateKey(
+                        credentialsId: 'finacle-ssh-key',
+                        keyFileVariable: 'SSH_KEY_FILE',
+                        usernameVariable: 'SSH_USER'
+                    )]) {
+                        def sshKeyPath = isUnix() ? SSH_KEY_FILE : toGitBashPath(SSH_KEY_FILE)
+                        
+                        if (isUnix()) {
+                            finlResult = sh(
+                                script: """
+                                    ssh -i '${sshKeyPath}' -o StrictHostKeyChecking=no ${SSH_USER}@${FINACLE_SERVER} \
+                                    'bash /home/${SSH_USER}/scripts/run_finl.sh ${params.FIN_INSTALL_ID}'
+                                """,
+                                returnStatus: true
+                            )
+                        } else {
+                            finlResult = bat(
+                                script: """
+                                    "${GIT_BASH}" -c "ssh -i '${sshKeyPath}' -o StrictHostKeyChecking=no ${SSH_USER}@${FINACLE_SERVER} 'bash /home/${SSH_USER}/scripts/run_finl.sh ${params.FIN_INSTALL_ID}'"
+                                """,
+                                returnStatus: true
+                            )
+                        }
+                    }
+                    
+                    if (finlResult != 0) {
+                        error("FINL validation failed. Initiating rollback...")
+                    }
+                    
+                    echo "FINL validation successful"
+                }
+            }
+        }
+        
+        stage('Service Restart') {
+            steps {
+                script {
+                    echo "=== RESTARTING FINACLE SERVICES ==="
+                    
+                    withCredentials([sshUserPrivateKey(
+                        credentialsId: 'finacle-ssh-key',
+                        keyFileVariable: 'SSH_KEY_FILE',
+                        usernameVariable: 'SSH_USER'
+                    )]) {
+                        def sshKeyPath = isUnix() ? SSH_KEY_FILE : toGitBashPath(SSH_KEY_FILE)
+                        
+                        if (isUnix()) {
+                            sh """
+                                ssh -i '${sshKeyPath}' -o StrictHostKeyChecking=no ${SSH_USER}@${FINACLE_SERVER} \
+                                'bash /home/${SSH_USER}/scripts/restart_services.sh ${params.FIN_INSTALL_ID}'
+                            """
+                        } else {
+                            bat """
+                                "${GIT_BASH}" -c "ssh -i '${sshKeyPath}' -o StrictHostKeyChecking=no ${SSH_USER}@${FINACLE_SERVER} 'bash /home/${SSH_USER}/scripts/restart_services.sh ${params.FIN_INSTALL_ID}'"
+                            """
+                        }
+                    }
+                    
+                    // Wait for service to be ready
+                    sleep(time: 30, unit: 'SECONDS')
+                }
+            }
+        }
+        
+        stage('Post-Deployment Verification') {
+            steps {
+                script {
+                    echo "=== POST-DEPLOYMENT VERIFICATION ==="
+                    
+                    withCredentials([sshUserPrivateKey(
+                        credentialsId: 'finacle-ssh-key',
+                        keyFileVariable: 'SSH_KEY_FILE',
+                        usernameVariable: 'SSH_USER'
+                    )]) {
+                        def scriptPath = "${WORKSPACE}/ci-cd/scripts/verify_deployment.sh"
+                        def sshKeyPath = isUnix() ? SSH_KEY_FILE : toGitBashPath(SSH_KEY_FILE)
+                        
+                        if (isUnix()) {
+                            sh """
+                                export SSH_KEY_FILE='${SSH_KEY_FILE}'
+                                export FINACLE_USER='${SSH_USER}'
+                                bash ${scriptPath} --environment ${DEPLOYMENT_ENV} --ticket ${params.TICKET_NUMBER}
+                            """
+                        } else {
+                            def gitBashScriptPath = toGitBashPath(scriptPath)
+                            bat """
+                                "${GIT_BASH}" -c "export SSH_KEY_FILE='${sshKeyPath}' && export FINACLE_USER='${SSH_USER}' && bash '${gitBashScriptPath}' --environment ${DEPLOYMENT_ENV} --ticket ${params.TICKET_NUMBER}"
+                            """
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('Production Branch Synchronization') {
+            when {
+                expression { DEPLOYMENT_ENV == 'PRODUCTION' }
+            }
+            steps {
+                script {
+                    echo "=== SYNCHRONIZING ALL BRANCHES WITH PRODUCTION ==="
+                    
+                    def scriptPath = "${WORKSPACE}/ci-cd/scripts/sync_branches_from_production.sh"
+                    
+                    if (isUnix()) {
+                        sh """
+                            bash ${scriptPath}
+                        """
+                    } else {
+                        def gitBashScriptPath = toGitBashPath(scriptPath)
+                        bat """
+                            "${GIT_BASH}" -c "bash '${gitBashScriptPath}'"
+                        """
+                    }
+                }
+            }
+        }
+        
+        stage('Generate Audit Report') {
+            steps {
+                script {
+                    echo "=== GENERATING AUDIT REPORT ==="
+                    
+                    withCredentials([sshUserPrivateKey(
+                        credentialsId: 'finacle-ssh-key',
+                        keyFileVariable: 'SSH_KEY_FILE',
+                        usernameVariable: 'SSH_USER'
+                    )]) {
+                        def scriptPath = "${WORKSPACE}/ci-cd/scripts/generate_audit_log.sh"
+                        def sshKeyPath = isUnix() ? SSH_KEY_FILE : toGitBashPath(SSH_KEY_FILE)
+                        
+                        if (isUnix()) {
+                            sh """
+                                export SSH_KEY_FILE='${SSH_KEY_FILE}'
+                                export FINACLE_USER='${SSH_USER}'
+                                bash ${scriptPath} \
+                                    --environment ${DEPLOYMENT_ENV} \
+                                    --ticket ${params.TICKET_NUMBER} \
+                                    --commit ${GIT_COMMIT} \
+                                    --author "${env.BUILD_USER}" \
+                                    --timestamp ${TIMESTAMP} \
+                                    --approver "${env.PROD_APPROVER ?: env.UAT_APPROVER ?: env.QA_APPROVER ?: 'AUTO'}"
+                            """
+                        } else {
+                            def gitBashScriptPath = toGitBashPath(scriptPath)
+                            bat """
+                                "${GIT_BASH}" -c "export SSH_KEY_FILE='${sshKeyPath}' && export FINACLE_USER='${SSH_USER}' && bash '${gitBashScriptPath}' --environment ${DEPLOYMENT_ENV} --ticket ${params.TICKET_NUMBER} --commit ${GIT_COMMIT} --author '${env.BUILD_USER}' --timestamp ${TIMESTAMP} --approver '${env.PROD_APPROVER ?: env.UAT_APPROVER ?: env.QA_APPROVER ?: 'AUTO'}'"
+                            """
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    post {
+        success {
+            script {
+                emailext(
+                    subject: "✓ Finacle Deployment SUCCESS - ${DEPLOYMENT_ENV} - Ticket ${params.TICKET_NUMBER}",
+                    body: """
+                        Finacle Deployment Completed Successfully
+                        
+                        Environment: ${DEPLOYMENT_ENV}
+                        Ticket: ${params.TICKET_NUMBER}
+                        Branch: ${BRANCH_NAME}
+                        Commit: ${GIT_COMMIT}
+                        Build: ${BUILD_NUMBER}
+                        Author: ${env.BUILD_USER}
+                        Approver: ${env.PROD_APPROVER ?: env.UAT_APPROVER ?: env.QA_APPROVER ?: 'AUTO'}
+                        Timestamp: ${TIMESTAMP}
+                        
+                        Files Deployed:
+                        ${env.CHANGED_FILES}
+                        
+                        Status: SUCCESSFUL
+                    """,
+                    to: "${EMAIL_RECIPIENTS}",
+                    attachLog: true
+                )
+            }
+        }
+        
+        failure {
+            script {
+                echo "=== DEPLOYMENT FAILED - INITIATING ROLLBACK ==="
+                
+                try {
+                    withCredentials([sshUserPrivateKey(
+                        credentialsId: 'finacle-ssh-key',
+                        keyFileVariable: 'SSH_KEY_FILE',
+                        usernameVariable: 'SSH_USER'
+                    )]) {
+                        def scriptPath = "${WORKSPACE}/ci-cd/scripts/rollback_deployment.sh"
+                        def sshKeyPath = isUnix() ? SSH_KEY_FILE : toGitBashPath(SSH_KEY_FILE)
+                        
+                        if (isUnix()) {
+                            sh """
+                                export SSH_KEY_FILE='${SSH_KEY_FILE}'
+                                export FINACLE_USER='${SSH_USER}'
+                                bash ${scriptPath} --environment ${DEPLOYMENT_ENV} --ticket ${params.TICKET_NUMBER} --timestamp ${TIMESTAMP}
+                            """
+                        } else {
+                            def gitBashScriptPath = toGitBashPath(scriptPath)
+                            bat """
+                                "${GIT_BASH}" -c "export SSH_KEY_FILE='${sshKeyPath}' && export FINACLE_USER='${SSH_USER}' && bash '${gitBashScriptPath}' --environment ${DEPLOYMENT_ENV} --ticket ${params.TICKET_NUMBER} --timestamp ${TIMESTAMP}"
+                            """
+                        }
+                    }
+                } catch (Exception e) {
+                    echo "Rollback script execution failed: ${e.message}"
+                    echo "Manual rollback may be required"
+                }
+                
+                emailext(
+                    subject: "✗ Finacle Deployment FAILED - ${DEPLOYMENT_ENV} - Ticket ${params.TICKET_NUMBER}",
+                    body: """
+                        Finacle Deployment Failed - Rollback Initiated
+                        
+                        Environment: ${DEPLOYMENT_ENV}
+                        Ticket: ${params.TICKET_NUMBER}
+                        Branch: ${BRANCH_NAME}
+                        Commit: ${GIT_COMMIT}
+                        Build: ${BUILD_NUMBER}
+                        Author: ${env.BUILD_USER}
+                        Timestamp: ${TIMESTAMP}
+                        
+                        Status: FAILED - ROLLED BACK
+                        
+                        Please review build log for details.
+                    """,
+                    to: "${EMAIL_RECIPIENTS}",
+                    attachLog: true
+                )
+            }
+        }
+        
+        always {
+            script {
+                cleanWs()
+            }
+        }
+    }
+}
+
+// Helper Functions
+def getBranchEnvironment(branchName) {
+    if (!branchName) return 'DEV'
+    
+    branchName = branchName.replaceAll('origin/', '')
+    
+    switch(branchName) {
+        case 'PRODUCTION':
+            return 'PRODUCTION'
+        case 'UAT':
+            return 'UAT'
+        case 'QA':
+            return 'QA'
+        case 'DEV':
+            return 'DEV'
+        case ~/^DEV-.*/:
+            return 'DEV'
+        default:
+            return 'DEV'
+    }
+}
+
+def isApprovedForEnvironment(env) {
+    // Implement approval logic based on environment
+    return true // Placeholder - integrate with approval system
+}
