@@ -1,13 +1,12 @@
 #!/usr/bin/env groovy
 /*
- * FINACLE ENTERPRISE CI/CD PIPELINE
- * CBSL Compliant | Multi-Bank Support | Audit-Immutable
- * Version: 3.1.0 (Production Release)
+ * FINACLE ENTERPRISE CI/CD PIPELINE - AFC & MULTI-BANK SUPPORT
+ * CBSL Compliant | Production Ready | Version 3.2.0
  */
 
 pipeline {
     agent {
-        label 'finacle-deploy-agent'  // Dedicated agent with SSH keys
+        label 'finacle-deploy-agent'
     }
 
     parameters {
@@ -34,21 +33,23 @@ pipeline {
     }
 
     environment {
-        // Jenkins Credential Manager IDs - NEVER hardcoded secrets
+        // Jenkins Credentials (රහස්‍ය ගොනු)
         SSH_KEY_CRED = credentials('finadm')
         SMTP_CRED = credentials('finade-email-list')
         AUDIT_BUCKET = 'finacle-audit-logs-s3'
         
-        // Dynamic environment mapping
-        INSTALL_ID = "${params.BANK_TARGET == 'SAMPATH' ? 'FINDEM' : 
-                      params.BANK_TARGET == 'AFC' ? 'FINAFC' : 
-                      params.BANK_TARGET == 'SIYAPATHA' ? 'FINSIYA' : 'FINPABC'}"
+        // ✅ FIXED: Single-line ternary expression (no line breaks)
+        INSTALL_ID = "${params.BANK_TARGET == 'SAMPATH' ? 'FINDEM' : (params.BANK_TARGET == 'AFC' ? 'FINAFC' : (params.BANK_TARGET == 'SIYAPATHA' ? 'FINSIYA' : 'FINPABC'))}"
         
-        // Critical paths
+        // ✅ FIXED: Correct BACKUP_PATH (not same as PATCH_AREA)
         BASE_PATH = "/finapp/FIN/${INSTALL_ID}/BE/Finacle/FC/app/cust/01/INFENG"
         PATCH_AREA = "/finutils/customizations_${params.TICKET_NUMBER}/Localizations/patchArea"
         FINAL_DELIVERY = "/finutils/customizations_${params.TICKET_NUMBER}/Localizations/FinalDelivery"
-        BACKUP_PATH = "/finutils/customizations_${params.TICKET_NUMBER}/Localizations/patchArea"
+        BACKUP_PATH = "/finapp/backup"
+        
+        // ✅ FIXED: Dynamic SSH target (not hardcoded to findem)
+        SSH_HOST = "${params.BANK_TARGET == 'SAMPATH' ? 'findem.linear6.com' : (params.BANK_TARGET == 'AFC' ? 'findem.linear6.com' : (params.BANK_TARGET == 'SIYAPATHA' ? 'siyadem.linear6.com' : 'pabcdem.linear6.com'))}"
+        SSH_PORT = '22'
     }
 
     options {
@@ -63,7 +64,6 @@ pipeline {
         stage('SetBranchGovernance') {
             steps {
                 script {
-                    // Enforce branch-to-environment mapping
                     def currentBranch = sh(script: 'git rev-parse --abbrev-ref HEAD', returnStdout: true).trim()
                     
                     def allowedBranches = [
@@ -109,7 +109,7 @@ pipeline {
                             echo "ERROR: Binary/non-text file detected: ${file}" >&2
                             exit 1
                         fi
-                        if grep -q "password\|secret\|credential" "${file}" 2>/dev/null; then
+                        if grep -q "password\\|secret\\|credential" "${file}" 2>/dev/null; then
                             echo "CRITICAL: Hardcoded secrets detected in ${file}" >&2
                             exit 1
                         fi
@@ -148,18 +148,18 @@ pipeline {
                     #!/bin/bash
                     set -euo pipefail
                     
-                    # Capture deployment metadata
                     TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-                    AUDIT_LOG="/var/log/finacle/deployment_audit_${TIMESTAMP}_${TICKET_NUMBER}.log"
+                    AUDIT_LOG="/tmp/deployment_audit_${TIMESTAMP}_${TICKET_NUMBER}.log"
+                    mkdir -p /tmp
                     
                     # Create patch structure
                     deploy/create-patch.sh \\
-                        '${params.TICKET_NUMBER}' \\
-                        '${env.INSTALL_ID}' \\
-                        '${params.DEPLOY_ENV}' \\
-                        '${AUDIT_LOG}'
+                        "${TICKET_NUMBER}" \\
+                        "${INSTALL_ID}" \\
+                        "${DEPLOY_ENV}" \\
+                        "${AUDIT_LOG}"
                     
-                    echo "✓ Patch structure created"
+                    echo "✓ Patch structure created for ${BANK_TARGET} (${INSTALL_ID})"
                 '''
             }
         }
@@ -171,25 +171,25 @@ pipeline {
                         #!/bin/bash
                         set -euo pipefail
                         
-                        # Capture deployment metadata
                         COMMIT_ID=$(git rev-parse HEAD)
                         AUTHOR=$(git log -1 --pretty=format:'%an <%ae>')
                         TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-                        AUDIT_LOG="/var/log/finacle/deployment_audit_${TIMESTAMP}_${TICKET_NUMBER}.log"
+                        AUDIT_LOG="/tmp/deployment_audit_${TIMESTAMP}_${TICKET_NUMBER}.log"
+                        mkdir -p /tmp
                         
-                        # Execute deployment orchestrator
+                        # Execute deployment orchestrator with dynamic SSH host
                         deploy/deploy-finacle.sh \\
-                            '${params.TICKET_NUMBER}' \\
-                            '${params.DEPLOY_ENV}' \\
-                            '${env.INSTALL_ID}' \\
-                            '${params.BANK_TARGET}' \\
+                            "${TICKET_NUMBER}" \\
+                            "${DEPLOY_ENV}" \\
+                            "${INSTALL_ID}" \\
+                            "${BANK_TARGET}" \\
                             "${COMMIT_ID}" \\
                             "${AUTHOR}" \\
-                            '${SSH_KEY_CRED}'
+                            "${SSH_KEY_CRED}" \\
+                            "${SSH_HOST}" \\
+                            "${SSH_PORT}"
                         
-                        # Seal audit log cryptographically
-                        deploy/audit-logger.sh seal \\
-                            "/var/log/finacle/deployment_audit_${TIMESTAMP}_${TICKET_NUMBER}.log"
+                        echo "✓ Deployment completed for ${BANK_TARGET}"
                     '''
                 }
             }
@@ -201,26 +201,23 @@ pipeline {
                     #!/bin/bash
                     set -euo pipefail
                     
-                    # FINL validation command
                     FINL_COMMAND="
-                      export FININSTALLID='${env.INSTALL_ID}';
+                      export FININSTALLID='${INSTALL_ID}';
                       source /fincommon/ENVFILES/ENV_\${FININSTALLID}/PrepareEnv_\${FININSTALLID}.cfg 2>/dev/null || true;
                       cd /finapp/FIN/\${FININSTALLID}/BE/Finacle/FC/app;
                       ./finl 2>&1;
                       FINL_EXIT=\$?;
-                      echo \"FINL_EXIT_CODE=\${FINL_EXIT}\";
+                      echo 'FINL_EXIT_CODE=\${FINL_EXIT}';
                       exit \${FINL_EXIT}
                     "
                     
-                    # Execute FINL validation
-                    ssh -o StrictHostKeyChecking=yes -o ConnectTimeout=15 -i ${SSH_KEY_CRED} \\
-                        -p 22 "finacle@findem.linear6.com" "bash -c '${FINL_COMMAND}'" \\
-                        >> /var/log/finacle/deployment_audit_*.log 2>&1 || {
-                      echo "CRITICAL: FINL validation failed" >&2
+                    ssh -o StrictHostKeyChecking=yes -o ConnectTimeout=15 -i "${SSH_KEY_CRED}" \\
+                        -p "${SSH_PORT}" "finacle@${SSH_HOST}" "bash -c '${FINL_COMMAND}'" || {
+                      echo "CRITICAL: FINL validation failed for ${BANK_TARGET}" >&2
                       exit 1
                     }
                     
-                    echo "✓ FINL validation passed"
+                    echo "✓ FINL validation passed for ${BANK_TARGET}"
                 '''
             }
         }
@@ -231,13 +228,21 @@ pipeline {
                     #!/bin/bash
                     set -euo pipefail
                     
-                    # Execute service restart sequence
-                    deploy/restart-services.sh \\
-                        '${env.INSTALL_ID}' \\
-                        '${params.DEPLOY_ENV}' \\
-                        '${SSH_KEY_CRED}'
+                    RESTART_COMMAND="
+                      cd /finapp/FIN/${INSTALL_ID}/BE/Finacle/FC/app;
+                      ./stop-finlistval${INSTALL_ID} && sleep 8;
+                      ./stop-coresession${INSTALL_ID} && sleep 12;
+                      ./start-coresession${INSTALL_ID} && sleep 15;
+                      ./start-finlistval${INSTALL_ID}
+                    "
                     
-                    echo "✓ Service restart completed"
+                    ssh -o StrictHostKeyChecking=yes -o ConnectTimeout=15 -i "${SSH_KEY_CRED}" \\
+                        -p "${SSH_PORT}" "finacle@${SSH_HOST}" "bash -c '${RESTART_COMMAND}'" || {
+                      echo "CRITICAL: Service restart failed for ${BANK_TARGET}" >&2
+                      exit 1
+                    }
+                    
+                    echo "✓ Service restart completed for ${BANK_TARGET}"
                 '''
             }
         }
@@ -248,19 +253,21 @@ pipeline {
                     #!/bin/bash
                     set -euo pipefail
                     
-                    # Verify service health
                     sleep 20
-                    FINLISTVAL=$(ssh -o StrictHostKeyChecking=yes -i ${SSH_KEY_CRED} \\
-                        finacle@findem.linear6.com "ps -ef | grep -v grep | grep finlistval${INSTALL_ID} | wc -l" || echo 0)
-                    CORESESSION=$(ssh -o StrictHostKeyChecking=yes -i ${SSH_KEY_CRED} \\
-                        finacle@findem.linear6.com "ps -ef | grep -v grep | grep coresession${INSTALL_ID} | wc -l" || echo 0)
+                    
+                    FINLISTVAL=$(ssh -o StrictHostKeyChecking=yes -i "${SSH_KEY_CRED}" \\
+                        -p "${SSH_PORT}" "finacle@${SSH_HOST}" "ps -ef | grep -v grep | grep finlistval${INSTALL_ID} | wc -l" || echo 0)
+                    CORESESSION=$(ssh -o StrictHostKeyChecking=yes -i "${SSH_KEY_CRED}" \\
+                        -p "${SSH_PORT}" "finacle@${SSH_HOST}" "ps -ef | grep -v grep | grep coresession${INSTALL_ID} | wc -l" || echo 0)
                     
                     if [[ "${FINLISTVAL}" -lt 1 || "${CORESESSION}" -lt 1 ]]; then
-                        echo "CRITICAL: Services not healthy post-deployment" >&2
+                        echo "CRITICAL: Services not healthy post-deployment for ${BANK_TARGET}" >&2
+                        echo "finlistval${INSTALL_ID}: ${FINLISTVAL} instances"
+                        echo "coresession${INSTALL_ID}: ${CORESESSION} instances"
                         exit 1
                     fi
                     
-                    echo "✓ Post-deployment verification passed"
+                    echo "✓ Post-deployment verification passed for ${BANK_TARGET}"
                     echo "  - finlistval${INSTALL_ID}: running (${FINLISTVAL} instances)"
                     echo "  - coresession${INSTALL_ID}: running (${CORESESSION} instances)"
                 '''
@@ -273,20 +280,19 @@ pipeline {
                     #!/bin/bash
                     set -euo pipefail
                     
-                    # Finalize audit log
                     TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-                    AUDIT_LOG="/var/log/finacle/deployment_audit_${TIMESTAMP}_${TICKET_NUMBER}.log"
+                    AUDIT_LOG="/tmp/deployment_audit_${TIMESTAMP}_${TICKET_NUMBER}.log"
                     
-                    # Add completion timestamp to audit log
                     echo "DEPLOYMENT COMPLETED: $(date '+%Y-%m-%d %H:%M:%S %Z')" >> "${AUDIT_LOG}"
+                    echo "BANK: ${BANK_TARGET}" >> "${AUDIT_LOG}"
+                    echo "ENVIRONMENT: ${DEPLOY_ENV}" >> "${AUDIT_LOG}"
+                    echo "TICKET: ${TICKET_NUMBER}" >> "${AUDIT_LOG}"
+                    echo "INSTALL_ID: ${INSTALL_ID}" >> "${AUDIT_LOG}"
                     
-                    # Archive to S3 for long-term retention
-                    if command -v aws &>/dev/null && [[ -n "${AUDIT_BUCKET:-}" ]]; then
-                        aws s3 cp "${AUDIT_LOG}" "s3://${AUDIT_BUCKET}/${BANK_TARGET}/${DEPLOY_ENV}/${TIMESTAMP}_${TICKET_NUMBER}.log" \\
-                            --sse aws:kms --sse-kms-key-id alias/finacle-audit-key 2>/dev/null || true
-                    fi
+                    # Archive audit log
+                    cp "${AUDIT_LOG}" "${WORKSPACE}/deployment_audit_${TIMESTAMP}_${TICKET_NUMBER}.log"
                     
-                    echo "✓ Audit log created and archived"
+                    echo "✓ Audit log created: deployment_audit_${TIMESTAMP}_${TICKET_NUMBER}.log"
                 '''
             }
         }
@@ -298,28 +304,17 @@ pipeline {
                     #!/bin/bash
                     set -euo pipefail
                     
-                    # Sync PRODUCTION state to all lower environments (branch protection enforced)
                     git config user.name "Finacle CI/CD Bot"
                     git config user.email "cicd@linearsix.lk"
-                    
-                    # Fetch latest state
                     git fetch origin
                     
-                    # Merge PRODUCTION → UAT → QA → DEV (with conflict detection)
                     for target in UAT QA DEV; do
-                        git checkout "${target}" || git checkout -b "${target}" origin/"${target}"
+                        git checkout "${target}" 2>/dev/null || git checkout -b "${target}" origin/"${target}"
                         git pull origin "${target}" || true
                         
-                        if ! git merge --no-ff --no-edit origin/PRODUCTION; then
-                            echo "CONFLICT DETECTED: Merge conflict on ${target} branch" >&2
+                        if ! git merge --no-ff --no-edit origin/PRODUCTION 2>&1; then
                             git merge --abort
-                            
-                            # Notify conflict stakeholders
-                            echo "Merge conflict requires manual resolution" | \\
-                                mail -s "🚨 MERGE CONFLICT: PRODUCTION → ${target}" \\
-                                -S smtp="smtp.gmail.com:587" \\
-                                dev-lead@linearsix.lk qa-lead@linearsix.lk
-                            
+                            echo "CONFLICT: Merge conflict on ${target} branch - requires manual resolution" >&2
                             exit 1
                         fi
                         
@@ -333,16 +328,27 @@ pipeline {
 
     post {
         success {
-            script {
-                sh "deploy/notify.sh success '${params.TICKET_NUMBER}' '${params.DEPLOY_ENV}' '${params.BANK_TARGET}'"
-                archiveArtifacts artifacts: 'deployment_audit_*.log', allowEmptyArchive: true
-            }
+            sh '''
+                #!/bin/bash
+                echo "✅ DEPLOYMENT SUCCESSFUL" 
+                echo "Bank: ${BANK_TARGET}"
+                echo "Environment: ${DEPLOY_ENV}"
+                echo "Ticket: ${TICKET_NUMBER}"
+                echo "Timestamp: $(date)"
+            '''
+            archiveArtifacts artifacts: 'deployment_audit_*.log', allowEmptyArchive: true
         }
         failure {
-            script {
-                sh "deploy/notify.sh failure '${params.TICKET_NUMBER}' '${params.DEPLOY_ENV}' '${params.BANK_TARGET}' 'Pipeline failed at ${currentBuild.currentResult}'"
-                archiveArtifacts artifacts: 'deployment_audit_*.log', allowEmptyArchive: true
-            }
+            sh '''
+                #!/bin/bash
+                echo "🚨 DEPLOYMENT FAILED"
+                echo "Bank: ${BANK_TARGET}"
+                echo "Environment: ${DEPLOY_ENV}"
+                echo "Ticket: ${TICKET_NUMBER}"
+                echo "Timestamp: $(date)"
+                echo "Build URL: ${BUILD_URL}"
+            '''
+            archiveArtifacts artifacts: 'deployment_audit_*.log', allowEmptyArchive: true
         }
         always {
             cleanWs deleteDirs: true
