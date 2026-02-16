@@ -48,7 +48,7 @@ pipeline {
         BASE_PATH = "/finapp/FIN/${INSTALL_ID}/BE/Finacle/FC/app/cust/01/INFENG"
         PATCH_AREA = "/finutils/customizations_${params.TICKET_NUMBER}/Localizations/patchArea"
         FINAL_DELIVERY = "/finutils/customizations_${params.TICKET_NUMBER}/Localizations/FinalDelivery"
-        BACKUP_PATH = "/finapp/backup"
+        BACKUP_PATH = "/finutils/customizations_${params.TICKET_NUMBER}/Localizations/patchArea"
     }
 
     options {
